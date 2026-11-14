@@ -73,6 +73,8 @@ export default function Simulados() {
     if (phase !== "running") return;
     const onKey = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(event.target.tagName)) return;
+      // num botão ou link focado, o Enter já gera o clique; tratar aqui confirmaria duas vezes
+      if (event.key === "Enter" && event.target instanceof HTMLElement && event.target.closest("button, a")) return;
       const key = event.key.toUpperCase();
       const position = KEYS.indexOf(key) >= 0 ? KEYS.indexOf(key) : ["1", "2", "3", "4"].indexOf(key);
       if (position >= 0 && current && position < current.options.length && !checked) setPicked(position);
