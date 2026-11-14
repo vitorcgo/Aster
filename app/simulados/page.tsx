@@ -318,7 +318,7 @@ export default function Simulados() {
                   <li><Icon name="check" size={14} strokeWidth={2.6} />Correção {mode === "treino" ? "a cada questão" : "só no final, como na prova"}</li>
                 </ul>
                 <button type="button" className="primary-button ticket-go" onClick={build}>Montar a prova<Icon name="right" size={18} /></button>
-                <small className="quiz-hint">{options && !options.ia ? "Sem chave de IA: as questões virão do banco conferido." : "As questões aparecem conforme ficam prontas."}</small>
+                <small className="quiz-hint">{options && !options.ia && !aiPayload() ? "Sem chave de IA: as questões virão do banco conferido. Coloque a sua em Modelos de IA, no topo." : "As questões aparecem conforme ficam prontas."}</small>
               </aside>
             </motion.section>
           )}

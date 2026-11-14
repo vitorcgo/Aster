@@ -8,7 +8,7 @@ where npm >nul 2>nul || (echo Instale o Node.js 20 ou superior: https://nodejs.o
 
 if not exist ".env" (
   copy ".env.example" ".env" >nul
-  echo Criei o arquivo .env. Coloque sua GEMINI_API_KEY nele ou cadastre a chave pelo painel de modelos.
+  echo Criei o arquivo .env, que e opcional. A chave de IA se coloca no site, em Modelos de IA.
 )
 
 if not exist ".venv\Scripts\python.exe" (
