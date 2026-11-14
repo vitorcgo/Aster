@@ -333,7 +333,8 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
     <div className="thread-frame">
       <header className="chat-head">
         <span className="chat-head-title"><Icon name="chat" size={16} />Conversa</span>
-        <span className="chat-head-meta">{turns.length} {turns.length === 1 ? "pergunta" : "perguntas"}{answered !== turns.length ? ` · ${answered} respondidas` : ""}</span>
+        {/* só o número: o texto inteiro não cabia ao lado dos botões e virava "1…" */}
+        <span className="chat-head-meta" title={`${turns.length} ${turns.length === 1 ? "pergunta" : "perguntas"}, ${answered} ${answered === 1 ? "respondida" : "respondidas"}`}>{turns.length}</span>
         <button type="button" className={`chat-head-memory ${memory.length ? "has-facts" : ""}`} onClick={() => setMemoryOpen((value) => !value)} aria-expanded={memoryOpen} title="O que o Aster lembra de você">
           <Icon name="book" size={14} />Memória{memory.length > 0 && <b>{memory.length}</b>}
         </button>
