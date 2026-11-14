@@ -22,6 +22,8 @@ npm run dev
 
 Antes de iniciar a API, preencha `GEMINI_API_KEY` no `.env`. Reinicie a API depois de alterar esse arquivo. Abra `http://localhost:3000`.
 
+`npm run dev` escuta só neste computador, para que ninguém na mesma rede (o Wi-Fi da sala, por exemplo) troque as chaves de IA ou gaste a cota. Para abrir no celular durante o desenvolvimento, use `npm run dev:rede` numa rede confiável.
+
 Para usar a API em outra porta, defina `ASTER_API_ORIGIN` antes de iniciar o Next, por exemplo `$env:ASTER_API_ORIGIN = "http://127.0.0.1:8010"`.
 
 ## Como o agente trabalha
