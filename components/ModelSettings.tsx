@@ -90,6 +90,15 @@ export function ModelSettings({ open, onClose }: { open: boolean; onClose: () =>
     }
   };
 
+  const importKey = async () => {
+    if (!provider) return;
+    try {
+      apply(await api<Settings>(`/api/settings/keys/${provider.id}/import`, { method: "POST" }));
+    } catch (problem) {
+      setError((problem as Error).message);
+    }
+  };
+
   const removeKey = async () => {
     if (!provider) return;
     try {
@@ -206,8 +215,8 @@ export function ModelSettings({ open, onClose }: { open: boolean; onClose: () =>
               {provider && (
                 <div className="provider-panel" role="tabpanel">
                   <p className="key-status">
-                    {provider.source === "page" && <>Chave salva aqui <code>{provider.masked}</code></>}
-                    {provider.source === "env" && <>Usando a chave do arquivo .env <code>{provider.masked}</code></>}
+                    {provider.source === "page" && <>Guardada neste computador pelo painel <code>{provider.masked}</code></>}
+                    {provider.source === "env" && <>Vindo do arquivo .env <code>{provider.masked}</code></>}
                     {!provider.source && <>Nenhuma chave cadastrada.</>}
                     <a href={provider.keys_url} target="_blank" rel="noreferrer">Gerar chave<Icon name="external" size={13} /></a>
                   </p>
@@ -216,6 +225,12 @@ export function ModelSettings({ open, onClose }: { open: boolean; onClose: () =>
                     <input id="provider-key" type="password" autoComplete="off" spellCheck={false} value={draftKey} onChange={(event) => setDraftKey(event.target.value)} placeholder={provider.configured ? "Colar outra chave" : `Cole a chave da API ${provider.label}`} />
                     <button type="submit" className="primary-button small" disabled={saving || draftKey.trim().length < 8}>{saving ? "Salvando" : "Salvar"}</button>
                   </form>
+                  {provider.source === "env" && (
+                    <div className="key-import">
+                      <p>Guarde esta chave no painel para gerenciar tudo por aqui. Depois você pode apagá-la do .env.</p>
+                      <button type="button" className="secondary-button" onClick={importKey}>Guardar no painel</button>
+                    </div>
+                  )}
                   {provider.source === "page" && <button type="button" className="text-button danger" onClick={removeKey}>Remover chave salva</button>}
 
                   {provider.configured && (
@@ -255,7 +270,7 @@ export function ModelSettings({ open, onClose }: { open: boolean; onClose: () =>
                 </div>
               )}
             </section>
-            <p className="sheet-foot">As chaves ficam no servidor, em data/settings.json, fora do Git. O navegador só vê o final mascarado.</p>
+            <p className="sheet-foot">As chaves guardadas pelo painel ficam neste computador, no arquivo data/settings.json, fora do Git. O navegador nunca recebe a chave inteira, só o final mascarado.</p>
           </motion.aside>
         </>
       )}

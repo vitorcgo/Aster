@@ -96,16 +96,43 @@ def blocked_key(spec: ModelSpec) -> str:
     return f"{spec.provider}:{spec.model}"
 
 
+def paused_models() -> dict[str, float]:
+    """Pausas em memória e as salvas em disco, que sobrevivem a um reinício da API."""
+    saved = load_settings().get("paused", {})
+    merged = {key: float(until) for key, until in saved.items()} if isinstance(saved, dict) else {}
+    merged.update(_model_blocked_until)
+    return merged
+
+
 def agent_models() -> tuple[ModelSpec, ...]:
     """Cadeia de modelos do agente com chave disponível, pulando os que falharam há pouco."""
     chain = tuple(spec for spec in dict.fromkeys(configured_chain()) if provider_key(spec.provider))
     now = time.time()
-    ready = tuple(spec for spec in chain if _model_blocked_until.get(blocked_key(spec), 0) <= now)
+    paused = paused_models()
+    ready = tuple(spec for spec in chain if paused.get(blocked_key(spec), 0) <= now)
     return ready or chain
 
 
 def block_model(spec: ModelSpec, minutes: float = 10) -> None:
-    _model_blocked_until[blocked_key(spec)] = time.time() + minutes * 60
+    until = time.time() + minutes * 60
+    _model_blocked_until[blocked_key(spec)] = until
+    data = load_settings()
+    saved = data.get("paused", {}) if isinstance(data.get("paused"), dict) else {}
+    now = time.time()
+    saved = {key: value for key, value in saved.items() if float(value) > now}
+    saved[blocked_key(spec)] = until
+    data["paused"] = saved
+    save_settings(data)
+
+
+def unpause(match) -> None:
+    for key in [key for key in _model_blocked_until if match(key)]:
+        _model_blocked_until.pop(key, None)
+    data = load_settings()
+    saved = data.get("paused", {})
+    if isinstance(saved, dict) and any(match(key) for key in saved):
+        data["paused"] = {key: value for key, value in saved.items() if not match(key)}
+        save_settings(data)
 
 
 def thinking_level() -> str:
@@ -724,7 +751,8 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
                 failure = classify_generation_error(error)
                 # modelo sem cota, fora do ar ou lento demais: pula nas próximas perguntas
                 if failure.try_fallback and failure.code != "invalid_answer":
-                    block_model(spec)
+                    # sem cota costuma durar horas; os outros erros, minutos
+                    block_model(spec, 60 if failure.code == "rate_limited" else 10)
                 break
             for thought in turn.thoughts:
                 yield emit("agent_thought", {"text": clean_thought(thought)})
@@ -876,7 +904,8 @@ def settings_view() -> dict:
         key = provider_key(provider)
         providers.append({"id": provider, "label": info["label"], "site": info["site"], "keys_url": info["keys_url"], "configured": bool(key), "source": key_source(provider), "masked": mask(key) if key else None})
     now = time.time()
-    chain = [{**spec.public(), "available": bool(provider_key(spec.provider)), "paused": _model_blocked_until.get(blocked_key(spec), 0) > now} for spec in configured_chain()]
+    paused = paused_models()
+    chain = [{**spec.public(), "available": bool(provider_key(spec.provider)), "paused": paused.get(blocked_key(spec), 0) > now} for spec in configured_chain()]
     return {"providers": providers, "chain": chain, "custom_chain": bool(saved.get("chain")), "default_chain": [spec.public() for spec in default_chain()]}
 
 
@@ -911,8 +940,7 @@ def put_key(provider: str, body: KeyBody, request: Request):
     data = load_settings()
     data.setdefault("keys", {})[provider] = body.key.strip()
     save_settings(data)
-    for blocked in [item for item in _model_blocked_until if item.startswith(f"{provider}:")]:
-        _model_blocked_until.pop(blocked, None)
+    unpause(lambda key: key.startswith(f"{provider}:"))
     return settings_view()
 
 
@@ -926,6 +954,20 @@ def delete_key(provider: str, request: Request):
     return settings_view()
 
 
+@app.post("/api/settings/keys/{provider}/import")
+def import_env_key(provider: str, request: Request):
+    """Copia a chave do .env para o armazenamento do painel, para gerenciar tudo pela página."""
+    require_local(request)
+    require_provider(provider)
+    env = gemini_api_key() if provider == "gemini" else os.getenv(PROVIDERS[provider]["env"], "").strip()
+    if not env:
+        raise HTTPException(status_code=400, detail={"code": "no_env_key", "message": "Não há chave deste provedor no arquivo .env."})
+    data = load_settings()
+    data.setdefault("keys", {})[provider] = env
+    save_settings(data)
+    return settings_view()
+
+
 @app.put("/api/settings/chain")
 def put_chain(body: ChainBody, request: Request):
     require_local(request)
@@ -934,8 +976,8 @@ def put_chain(body: ChainBody, request: Request):
     data = load_settings()
     data["chain"] = [item.model_dump() for item in body.chain]
     save_settings(data)
-    for item in body.chain:
-        _model_blocked_until.pop(f"{item.provider}:{item.model}", None)
+    chosen = {f"{item.provider}:{item.model}" for item in body.chain}
+    unpause(lambda key: key in chosen)
     return settings_view()
 
 

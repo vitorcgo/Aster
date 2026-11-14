@@ -210,6 +210,22 @@ class AgentTest(unittest.TestCase):
             events = self.ask("o que é RAG?")
         self.assertEqual((events[-1]["type"], events[-1]["data"]["reason"]), ("insufficient_evidence", "nada mesmo"))
 
+    def test_env_key_can_be_moved_into_the_panel(self):
+        before = next(item for item in self.client.get("/api/settings").json()["providers"] if item["id"] == "gemini")
+        self.assertEqual(before["source"], "env")
+        moved = self.client.post("/api/settings/keys/gemini/import")
+        self.assertEqual(moved.status_code, 200)
+        self.assertNotIn("configured", [value for item in moved.json()["providers"] for value in [item.get("masked")]])
+        gemini = next(item for item in moved.json()["providers"] if item["id"] == "gemini")
+        self.assertEqual(gemini["source"], "page")
+        self.assertEqual(self.client.post("/api/settings/keys/nvidia/import").status_code, 400)
+
+    def test_paused_model_survives_api_restart(self):
+        from api.main import ModelSpec, _model_blocked_until, agent_models, block_model
+        block_model(ModelSpec("gemini", "primary"), 60)
+        _model_blocked_until.clear()  # como se a API tivesse reiniciado
+        self.assertEqual([spec.model for spec in agent_models()], ["backup"])
+
     def test_no_coverage_and_blank_question(self):
         with patch("api.main.call_model", side_effect=[turn(("sem_base", {"motivo": "Assunto fora da disciplina."}))]):
             self.assertEqual(self.ask("Quem ganhou a copa de 1970?")[-1]["type"], "insufficient_evidence")
