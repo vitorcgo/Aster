@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion, useMotionValue, useSpring } from "motion/react";
+import { AnimatePresence, motion, useSpring } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { announce, drawEase, DRAW_MS } from "@/lib/draw";
 
@@ -23,10 +23,9 @@ function visible(rect: DOMRect) {
  * (pointer-events: none) e segue elementos reais marcados com data-cursor.
  */
 export function AsterCursor({ state }: { state: CursorState }) {
-  const x = useMotionValue(-80);
-  const y = useMotionValue(-80);
-  const springX = useSpring(x, SPRING);
-  const springY = useSpring(y, SPRING);
+  // molas independentes: presas a outro valor animado, o salto inicial era desfeito
+  const springX = useSpring(-80, SPRING);
+  const springY = useSpring(-80, SPRING);
   const [clicks, setClicks] = useState<number[]>([]);
   const [arrived, setArrived] = useState(false);
   const started = useRef(0);
@@ -34,6 +33,9 @@ export function AsterCursor({ state }: { state: CursorState }) {
   const reduced = useRef(false);
   const size = useRef<HTMLSpanElement>(null);
   const [drawing, setDrawing] = useState(false);
+  // perto da borda direita o rótulo passa para a esquerda do cursor, para não sair da tela
+  const [flip, setFlip] = useState(false);
+  useEffect(() => springX.on("change", (x) => setFlip(x > window.innerWidth - 300)), [springX]);
 
   useEffect(() => {
     reduced.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -42,13 +44,13 @@ export function AsterCursor({ state }: { state: CursorState }) {
   // Ponto de partida: o mascote no topo, de onde o cursor "sai".
   useEffect(() => {
     if (!state) return;
-    if (x.get() < 0) {
-      const origin = rectOf("mascot")[0];
-      const startX = origin ? origin.left + origin.width / 2 : window.innerWidth / 2;
-      const startY = origin ? origin.top + origin.height / 2 : 40;
-      x.jump(startX); y.jump(startY); springX.jump(startX); springY.jump(startY);
+    if (springX.get() < 0) {
+      // surge perto do primeiro alvo, em vez de cruzar a tela (e o chat) vindo do canto
+      const first = rectOf(state.target)[0] ?? rectOf("mascot")[0];
+      springX.jump(first ? Math.max(8, first.left - 36) : window.innerWidth / 2);
+      springY.jump(first ? Math.max(8, first.top - 30) : 40);
     }
-  }, [state, x, y, springX, springY]);
+  }, [state, springX, springY]);
 
   useEffect(() => {
     if (!state) return;
@@ -75,7 +77,7 @@ export function AsterCursor({ state }: { state: CursorState }) {
             const progress = reduced.current ? 1 : drawEase(Math.min(1, (now - drawStart) / DRAW_MS));
             targetX = first.left + first.width * progress;
             targetY = first.top + first.height * progress;
-            x.set(targetX); y.set(targetY); springX.jump(targetX); springY.jump(targetY);
+            springX.jump(targetX); springY.jump(targetY);
             if (size.current) size.current.textContent = `${Math.round(first.width * progress)} × ${Math.round(first.height * progress)}`;
             if (progress >= 1 && !drawEnded) {
               drawEnded = true;
@@ -110,8 +112,8 @@ export function AsterCursor({ state }: { state: CursorState }) {
           targetX = Math.max(12, Math.min(window.innerWidth - 40, targetX));
           targetY = Math.max(12, Math.min(window.innerHeight - 40, targetY));
         }
-        x.set(targetX);
-        y.set(targetY);
+        springX.set(targetX);
+        springY.set(targetY);
         const near = Math.hypot(springX.get() - targetX, springY.get() - targetY) < (state.gesture === "draw" ? 3 : 6);
         if (near && !clicked) {
           clicked = true;
@@ -128,7 +130,7 @@ export function AsterCursor({ state }: { state: CursorState }) {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [state, x, y, springX, springY]);
+  }, [state, springX, springY]);
 
   // Rastro curto de glifos atrás do cursor
   useEffect(() => {
@@ -192,6 +194,7 @@ export function AsterCursor({ state }: { state: CursorState }) {
           <motion.div
             className="aster-cursor"
             data-gesture={gesture}
+            data-flip={flip || undefined}
             style={{ x: springX, y: springY }}
             initial={{ opacity: 0, scale: 0.7 }}
             animate={{ opacity: 1, scale: 1 }}

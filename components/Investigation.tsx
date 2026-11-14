@@ -101,7 +101,12 @@ function NodeBody({ node, materials }: { node: TraceNode; materials: Material[] 
     case "check":
       return <p className="node-text clamp-3">{node.message}</p>;
     case "fallback":
-      return <p className="node-text">{node.model}</p>;
+      return (
+        <>
+          {node.tried.length > 0 && <p className="node-meta">Sem resposta de {node.tried.join(", ")}</p>}
+          <p className="node-text">Usando {node.model}</p>
+        </>
+      );
     case "answer":
       return <p className="node-text">{node.chat ? "Resposta direta, sem pesquisa" : `${node.citations} ${node.citations === 1 ? "fonte citada" : "fontes citadas"}`}</p>;
     case "stop":
@@ -111,6 +116,7 @@ function NodeBody({ node, materials }: { node: TraceNode; materials: Material[] 
 
 export function Investigation({ turn, materials, compact, replaying, live, onToggleCompact, onReplay, onOpenNode }: Props) {
   const track = useRef<HTMLDivElement>(null);
+  const viewport = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const nodes = turn?.nodes ?? [];
@@ -136,8 +142,43 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
 
   useLayoutEffect(() => {
     const element = track.current;
-    if (!element) return;
+    const frame = viewport.current;
+    if (!element || !frame) return;
+    // encolhe a trilha para todos os passos caberem na altura disponível (até 60%); abaixo disso, rola
+    const contentHeight = () => {
+      // altura real dos blocos; o SVG das conexões fica de fora porque guarda o tamanho da medida anterior
+      let bottom = 0;
+      for (const child of Array.from(element.children)) {
+        if (child instanceof HTMLElement) bottom = Math.max(bottom, child.offsetTop + child.offsetHeight);
+      }
+      return bottom + 22;
+    };
+    const fit = () => {
+      element.style.transform = "none";
+      element.style.marginBottom = "0px";
+      element.style.width = compact ? "" : "100%";
+      if (compact) return;
+      // a trilha ocupa só a altura de que precisa (até 54% da área); o documento fica com o resto
+      const work = frame.closest<HTMLElement>(".work");
+      const head = frame.offsetTop;
+      const limit = work ? work.clientHeight * 0.54 : frame.clientHeight + head;
+      const available = limit - head;
+      let scale = 0.66;
+      for (const candidate of [1, 0.92, 0.85, 0.78, 0.72, 0.66]) {
+        element.style.width = `${100 / candidate}%`;
+        if (contentHeight() * candidate <= available) { scale = candidate; break; }
+      }
+      element.style.width = `${100 / scale}%`;
+      element.style.transform = scale < 1 ? `scale(${scale})` : "none";
+      // a escala não encolhe a caixa de layout; a margem negativa tira a sobra da área de rolagem
+      element.style.marginBottom = `${-Math.round(element.offsetHeight * (1 - scale))}px`;
+      frame.dataset.scale = String(scale);
+      // se tudo coube, a trilha fica no topo; rolar só esconderia a primeira linha
+      if (contentHeight() * scale <= available + 1) frame.scrollTop = 0;
+      if (work) work.style.setProperty("--trace-h", `${Math.round(Math.max(190, Math.min(limit, head + contentHeight() * scale)))}px`);
+    };
     const measure = () => {
+      fit();
       const items = Array.from(element.querySelectorAll<HTMLElement>("[data-node]"));
       const box = (id: string) => {
         const item = items.find((candidate) => candidate.dataset.node === id);
@@ -147,12 +188,24 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
       for (let index = 1; index < items.length; index++) {
         const a = items[index - 1];
         const b = items[index];
-        const x1 = a.offsetLeft + a.offsetWidth;
-        const y1 = a.offsetTop + (compact ? a.offsetHeight / 2 : 34);
-        const x2 = b.offsetLeft;
-        const y2 = b.offsetTop + (compact ? b.offsetHeight / 2 : 34);
-        const bend = (x2 - x1) / 2;
-        next.push({ id: `e-${a.dataset.node}-${b.dataset.node}`, d: `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`, tone: "flow", live: index === items.length - 1 && !!turn && turn.status === "running" });
+        const live = index === items.length - 1 && !!turn && turn.status === "running";
+        const sameRow = Math.abs(a.offsetTop - b.offsetTop) < 12;
+        if (sameRow) {
+          const x1 = a.offsetLeft + a.offsetWidth;
+          const y1 = a.offsetTop + (compact ? a.offsetHeight / 2 : 34);
+          const x2 = b.offsetLeft;
+          const y2 = b.offsetTop + (compact ? b.offsetHeight / 2 : 34);
+          const bend = (x2 - x1) / 2;
+          next.push({ id: `e-${a.dataset.node}-${b.dataset.node}`, d: `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`, tone: "flow", live });
+        } else {
+          // quebra de linha: sai por baixo do bloco e entra por cima do próximo, como uma serpentina
+          const x1 = a.offsetLeft + a.offsetWidth / 2;
+          const y1 = a.offsetTop + a.offsetHeight;
+          const x2 = b.offsetLeft + b.offsetWidth / 2;
+          const y2 = b.offsetTop;
+          const drop = Math.max(18, (y2 - y1) / 2);
+          next.push({ id: `e-${a.dataset.node}-${b.dataset.node}`, d: `M${x1},${y1} C${x1},${y1 + drop} ${x2},${y2 - drop} ${x2},${y2}`, tone: "flow", live });
+        }
       }
       const answer = box(`${turn?.id}-a`);
       if (answer && !compact) {
@@ -171,18 +224,24 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
       setSize({ width: element.scrollWidth, height: element.scrollHeight });
     };
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(frame);
     element.querySelectorAll("[data-node]").forEach((item) => observer.observe(item));
     return () => observer.disconnect();
   }, [nodes, thinking, compact, citedFrom, turn]);
 
   // segue o nó mais novo
   useLayoutEffect(() => {
-    const element = track.current;
-    if (!element) return;
-    const newest = element.querySelector<HTMLElement>("[data-node]:last-of-type");
-    if (newest) element.scrollTo({ left: Math.max(0, newest.offsetLeft + newest.offsetWidth - element.clientWidth + 48), behavior: "smooth" });
+    const inner = track.current;
+    const element = viewport.current;
+    if (!inner || !element) return;
+    const newest = inner.querySelector<HTMLElement>("[data-node]:last-of-type");
+    if (!newest) return;
+    const scale = Number(element.dataset.scale || 1);
+    // sem animação: o cursor desenha o bloco logo em seguida e não pode perseguir um alvo em movimento
+    // ao recolher, a rolagem vertical da trilha em linhas precisa voltar ao topo, senão a faixa fica vazia
+    if (compact) element.scrollTo({ top: 0, left: Math.max(0, newest.offsetLeft + newest.offsetWidth - element.clientWidth + 40) });
+    else if ((newest.offsetTop + newest.offsetHeight) * scale > element.scrollTop + element.clientHeight - 12) element.scrollTo({ top: Math.max(0, newest.offsetTop * scale - 14) });
   }, [nodes.length, thinking, compact]);
 
   const steps = nodes.filter((node) => node.kind === "search" || node.kind === "read" || node.kind === "web").length;
@@ -209,6 +268,7 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
           <p>Cada busca, página aberta e pesquisa na web que o Aster fizer aparece aqui, no momento em que acontece.</p>
         </div>
       ) : (
+        <div className="track-viewport" ref={viewport}>
         <div className="track" ref={track}>
           <svg className="track-edges" width={size.width} height={size.height} aria-hidden="true">
             {edges.map((edge) => (
@@ -235,7 +295,6 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
                 <Drawable
                   key={node.id}
                   tag="article"
-                  layout="position"
                   target={`node-${node.id}`}
                   enabled={live}
                   radius={compact ? 999 : 18}
@@ -261,7 +320,6 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
             {thinking && (
               <motion.article
                 key="thinking"
-                layout="position"
                 data-node={`${turn.id}-think`}
                 data-cursor="thinking"
                 className="trace-node node-thinking"
@@ -278,6 +336,7 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
               </motion.article>
             )}
           </AnimatePresence>
+        </div>
         </div>
       )}
     </section>
