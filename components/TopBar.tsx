@@ -59,7 +59,8 @@ export function TopBar({ current, mood = "idle", onHome }: { current: "/" | "/si
   return (
     <header className="topbar">
       <Link href="/" className="brand" onClick={onHome} aria-label="Aster, início">
-        <span className="brand-mascot" data-cursor="mascot"><Mascot mood={mood} size={38} /></span>
+        {/* clicar no mascote só faz ele pular feliz; não volta ao início nem apaga a conversa (o nome continua sendo o link) */}
+        <span className="brand-mascot" data-cursor="mascot" onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}><Mascot mood={mood} size={38} /></span>
         <span className="brand-name">Aster</span>
       </Link>
       <nav className="nav" aria-label="Navegação principal">

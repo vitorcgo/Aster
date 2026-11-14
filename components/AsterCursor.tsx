@@ -3,11 +3,15 @@
 import { AnimatePresence, motion, useSpring } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { announce, drawEase, DRAW_MS } from "@/lib/draw";
+import { Mascot, type MascotMood } from "./Mascot";
 
 export type CursorGesture = "point" | "click" | "select" | "read" | "type" | "draw";
 export type CursorState = { target: string; label: string; gesture: CursorGesture; key: number } | null;
 
 const SPRING = { stiffness: 140, damping: 22, mass: 0.9 };
+
+// o mascote pequeno ao lado do cursor faz a cara do que o Aster está fazendo
+const GESTURE_MOOD: Record<CursorGesture, MascotMood> = { point: "idle", click: "idle", select: "thinking", read: "thinking", type: "writing", draw: "writing" };
 
 function rectOf(target: string) {
   const elements = Array.from(document.querySelectorAll<HTMLElement>(`[data-cursor="${target}"]`)).filter((element) => element.offsetParent !== null || element.getClientRects().length);
@@ -246,7 +250,7 @@ export function AsterCursor({ state }: { state: CursorState }) {
             )}
             {drawing && <span className="cursor-size" ref={size} />}
             <motion.span layout className="cursor-label" transition={{ type: "spring", stiffness: 380, damping: 30 }}>
-              <span className="cursor-name">Aster</span>
+              <span className="cursor-name"><Mascot mood={GESTURE_MOOD[gesture]} size={20} />Aster</span>
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.span key={state.label} className="cursor-action" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18 }}>
                   {state.label}

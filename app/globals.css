@@ -514,15 +514,16 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .cursor-ripple { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; border-radius: 50%; border: 2.5px solid var(--lime); }
 .cursor-label {
   position: absolute; left: 18px; top: 24px; display: inline-flex; align-items: center; gap: 8px;
-  padding: 5px 12px 5px 6px; border-radius: 999px; white-space: nowrap;
+  width: max-content; padding: 5px 12px 5px 6px; border-radius: 999px; white-space: nowrap;
   background: var(--lime); color: var(--lime-ink); box-shadow: 0 8px 18px -8px rgba(2, 16, 48, 0.7);
   font-size: 14px; font-weight: 600;
 }
 .aster-cursor[data-gesture="select"] .cursor-label, .aster-cursor[data-gesture="type"] .cursor-label { left: 12px; top: 18px; }
 .aster-cursor[data-flip] .cursor-label { left: auto; right: 18px; }
 .aster-cursor[data-flip] .cursor-size { left: auto; right: 14px; }
-.cursor-name { padding: 1px 8px; border-radius: 999px; background: var(--lime-ink); color: var(--lime); font-size: 12.5px; font-weight: 650; }
-.cursor-action { display: inline-block; }
+.cursor-name { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 1px 9px 1px 2px; border-radius: 999px; background: var(--lime-ink); color: var(--lime); font-size: 12.5px; font-weight: 650; }
+.cursor-name .mascot { width: 20px; height: 20px; border-radius: 50%; background: rgba(213, 255, 110, 0.14); }
+.cursor-action { display: inline-block; flex: none; }
 
 /* ------------------------------------------------------------------ painel de modelos */
 .status-model { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease, transform 140ms var(--ease-out); }
@@ -1012,6 +1013,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 @media (max-width: 420px) {
   .brand-name { display: none; }
 }
+}
 
 /* ------------------------------------------------------------------ movimento reduzido */
 @media (prefers-reduced-motion: reduce) {
@@ -1393,3 +1395,8 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .score-ring strong > span { font-variant-numeric: tabular-nums; }
 .result-buddy { position: relative; }
 .result-burst { top: 50%; }
+
+/* clicar no mascote: ele pula feliz por um instante */
+.mascot { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mascot-poke { animation: mascot-hop 560ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes mascot-hop { 0% { transform: scale(1.1, 0.86); } 35% { transform: translateY(-14%) scale(0.94, 1.08); } 70% { transform: translateY(0) scale(1.06, 0.95); } 100% { transform: none; } }
