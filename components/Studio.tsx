@@ -11,6 +11,7 @@ import { Mascot, type MascotMood } from "./Mascot";
 import { Thread } from "./Thread";
 import { TopBar } from "./TopBar";
 import { forgetDrawn, waitForDrawn } from "@/lib/draw";
+import { rememberRun } from "@/lib/lab";
 import { applyEvent, eventDwell, lectureLabel, newTurn, type LectureSource, type Material, type PagePayload, type RunEvent, type Source, type TraceNode, type Turn } from "@/lib/aster";
 
 const SUGGESTIONS = [
@@ -327,6 +328,8 @@ export function Studio() {
           enqueue(event, turnId, myToken);
         }
       }
+      // o Laboratório reaproveita esta consulta sem chamar o modelo de novo
+      rememberRun(question, turnsRef.current.find((turn) => turn.id === turnId)?.events ?? []);
     } catch (error) {
       if (abort.signal.aborted) return;
       // se a resposta final já chegou, uma queda depois disso não importa

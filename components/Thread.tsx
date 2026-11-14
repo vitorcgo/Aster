@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 import { Mascot } from "./Mascot";
 import Link from "next/link";
 import { faviconUrl, lectureLabel, siteName, type Source, type TraceNode, type Turn } from "@/lib/aster";
-import { demoForPage } from "@/lib/demos";
+import { stageForPage } from "@/lib/lab";
 
 type Segment = { text: string; bold: boolean };
 
@@ -116,7 +116,7 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
   const lectureCount = turn.sources.filter((source) => source.kind === "aula").length;
   const webCount = turn.sources.length - lectureCount;
   const actions = turn.nodes.filter((node) => node.kind === "search" || node.kind === "read" || node.kind === "web").length;
-  const demo = turn.sources.map((source) => (source.kind === "aula" ? demoForPage(source.document_id, source.page) : null)).find(Boolean) ?? null;
+  const stage = turn.sources.map((source) => (source.kind === "aula" ? stageForPage(source.document_id, source.page) : null)).find(Boolean) ?? null;
   let consumed = 0;
 
   return (
@@ -150,10 +150,10 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
               {webCount > 0 && lectureCount === 0 && <span className="badge badge-web">Fora do material das aulas</span>}
               {webCount > 0 && lectureCount > 0 && <span className="badge badge-web">Aulas e web</span>}
             </div>
-            {demo && (
-              <Link className="lab-link" href={`/laboratorio?demo=${demo.id}`}>
+            {stage && (
+              <Link className="lab-link" href={`/laboratorio?etapa=${stage.id}&q=${encodeURIComponent(turn.question)}`}>
                 <Icon name="network" size={16} />
-                <span><strong>Ver no Laboratório</strong> {demo.title}, interativo</span>
+                <span><strong>Ver no Laboratório</strong> {stage.title}: como o Aster faz isso</span>
                 <Icon name="right" size={16} />
               </Link>
             )}
