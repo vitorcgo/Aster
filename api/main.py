@@ -21,6 +21,20 @@ import pymupdf
 from dotenv import load_dotenv
 from google.genai import errors as genai_errors
 
+from api.providers import (
+    PROVIDERS,
+    ModelSpec,
+    ModelTurn,
+    ProviderHTTPError,
+    ToolCall,
+    list_models,
+    load_settings,
+    make_session,
+    mask,
+    save_settings,
+    test_model,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_MATERIALS = ROOT / "data" / "materials"
@@ -50,16 +64,46 @@ def last_resort_model() -> str:
 _model_blocked_until: dict[str, float] = {}
 
 
-def agent_models() -> tuple[str, ...]:
-    """Cadeia de modelos do agente, pulando os que bateram limite de uso há pouco."""
-    chain = tuple(dict.fromkeys(model for model in (*gemini_models(), last_resort_model()) if model))
+def provider_key(provider: str) -> str:
+    """Chave salva pela página tem prioridade; depois vem a variável de ambiente."""
+    saved = str(load_settings().get("keys", {}).get(provider, "")).strip()
+    if saved:
+        return saved
+    if provider == "gemini":
+        return gemini_api_key()
+    env = PROVIDERS.get(provider, {}).get("env")
+    return os.getenv(env, "").strip() if env else ""
+
+
+def key_source(provider: str) -> str | None:
+    if str(load_settings().get("keys", {}).get(provider, "")).strip():
+        return "page"
+    return "env" if provider_key(provider) else None
+
+
+def default_chain() -> list[ModelSpec]:
+    return [ModelSpec("gemini", model) for model in dict.fromkeys(model for model in (*gemini_models(), last_resort_model()) if model)]
+
+
+def configured_chain() -> list[ModelSpec]:
+    saved = [ModelSpec(str(item["provider"]), str(item["model"])) for item in load_settings().get("chain", []) if isinstance(item, dict) and item.get("provider") in PROVIDERS and item.get("model")]
+    return saved or default_chain()
+
+
+def blocked_key(spec: ModelSpec) -> str:
+    return f"{spec.provider}:{spec.model}"
+
+
+def agent_models() -> tuple[ModelSpec, ...]:
+    """Cadeia de modelos do agente com chave disponível, pulando os que falharam há pouco."""
+    chain = tuple(spec for spec in dict.fromkeys(configured_chain()) if provider_key(spec.provider))
     now = time.time()
-    ready = tuple(model for model in chain if _model_blocked_until.get(model, 0) <= now)
+    ready = tuple(spec for spec in chain if _model_blocked_until.get(blocked_key(spec), 0) <= now)
     return ready or chain
 
 
-def block_model(model: str, minutes: float = 10) -> None:
-    _model_blocked_until[model] = time.time() + minutes * 60
+def block_model(spec: ModelSpec, minutes: float = 10) -> None:
+    _model_blocked_until[blocked_key(spec)] = time.time() + minutes * 60
 
 
 def thinking_level() -> str:
@@ -81,14 +125,14 @@ class GenerationFailure:
 
 
 def classify_generation_error(error: Exception) -> GenerationFailure:
-    if isinstance(error, genai_errors.APIError):
+    if isinstance(error, (genai_errors.APIError, ProviderHTTPError)):
         status = error.code
         if status == 401:
-            return GenerationFailure("invalid_key", "A chave do Gemini foi recusada. Verifique GEMINI_API_KEY no servidor.", False)
+            return GenerationFailure("invalid_key", "A chave do provedor foi recusada. Confira a chave em Modelos.", True)
         if status == 402:
-            return GenerationFailure("billing_required", "O projeto do Gemini está sem créditos. Verifique a cobrança da conta.", False)
+            return GenerationFailure("billing_required", "A conta do provedor está sem créditos.", True)
         if status == 403:
-            return GenerationFailure("access_denied", "A chave não tem acesso ao Gemini. Verifique as permissões do projeto.", False)
+            return GenerationFailure("access_denied", "A chave não tem acesso a este modelo.", True)
         if status == 404:
             return GenerationFailure("model_unavailable", "O modelo configurado não está disponível para esta chave.", True)
         if status == 429:
@@ -96,13 +140,13 @@ def classify_generation_error(error: Exception) -> GenerationFailure:
         if status in (408, 500, 502, 503, 504) or isinstance(status, int) and status >= 500:
             return GenerationFailure("service_unavailable", "O serviço de modelos está indisponível no momento. Tente novamente.", True)
         if status in (400, 416, 422):
-            return GenerationFailure("invalid_request", "O Gemini rejeitou a configuração da consulta. Verifique o modelo configurado.", False)
-        return GenerationFailure("model_error", "Não foi possível consultar o Gemini. Tente novamente.", True)
+            return GenerationFailure("invalid_request", "O modelo rejeitou a configuração da consulta. Ele pode não aceitar ferramentas.", True)
+        return GenerationFailure("model_error", "Não foi possível consultar o modelo. Tente novamente.", True)
     if isinstance(error, InvalidAnswerError):
         return GenerationFailure("invalid_answer", "O modelo não conseguiu montar uma resposta com fontes válidas. Reformule a pergunta.", True)
     if isinstance(error, (TimeoutError, ConnectionError, OSError)):
-        return GenerationFailure("connection_error", "A conexão com o Gemini falhou. Tente novamente.", True)
-    return GenerationFailure("model_error", "Não foi possível concluir a consulta ao Gemini. Tente novamente.", True)
+        return GenerationFailure("connection_error", "A conexão com o provedor falhou. Tente novamente.", True)
+    return GenerationFailure("model_error", "Não foi possível concluir a consulta ao modelo. Tente novamente.", True)
 
 
 # ---------------------------------------------------------------- acervo
@@ -340,9 +384,10 @@ def google_web_search(query: str) -> list[dict]:
     """Pesquisa com o Google Search do Gemini e devolve as fontes citadas."""
     from google import genai
 
-    client = genai.Client(api_key=gemini_api_key(), http_options={"retry_options": {"attempts": 1}, "timeout": 25000})
+    client = genai.Client(api_key=provider_key("gemini"), http_options={"retry_options": {"attempts": 1}, "timeout": 25000})
+    gemini_specs = [spec.model for spec in agent_models() if spec.provider == "gemini"]
     interaction = client.interactions.create(
-        model=agent_models()[0],
+        model=gemini_specs[0] if gemini_specs else gemini_models()[0],
         input=f"Pesquise na web e resuma em até 4 frases, em português, informações confiáveis sobre: {query}",
         tools=[{"type": "google_search"}],
         store=False,
@@ -387,7 +432,7 @@ def wikipedia_search(query: str, language: str = "pt") -> list[dict]:
 
 def web_search(query: str) -> tuple[str, list[dict]]:
     global _google_blocked_until
-    if gemini_api_key() and time.time() >= _google_blocked_until and os.getenv("ASTER_WEB_GOOGLE", "1") != "0":
+    if provider_key("gemini") and time.time() >= _google_blocked_until and os.getenv("ASTER_WEB_GOOGLE", "1") != "0":
         try:
             results = google_web_search(query)
             if results:
@@ -526,54 +571,12 @@ def validate_answer(answer: GeneratedAnswer, allowed_ids: set[str] | list[Eviden
             raise InvalidAnswerError(f"Os ids {', '.join(unknown[:3])} não vieram das ferramentas nesta consulta.")
 
 
-@dataclass
-class ToolCall:
-    id: str
-    name: str
-    arguments: dict
+FINAL_TOOLS = ("responder", "conversar", "sem_base")
 
 
-@dataclass
-class ModelTurn:
-    thoughts: list[str]
-    calls: list[ToolCall]
-    text: str
-    raw_steps: list[dict]
-
-
-def call_model(model: str, history: list[dict], force_final: bool = False) -> ModelTurn:
-    from google import genai
-
-    client = genai.Client(api_key=gemini_api_key(), http_options={"retry_options": {"attempts": 1}})
-    tool_choice: Any = {"allowed_tools": {"mode": "any", "tools": ["responder", "conversar", "sem_base"]}} if force_final else "any"
-    interaction = client.interactions.create(
-        model=model,
-        input=history,
-        tools=TOOLS,
-        system_instruction=SYSTEM_INSTRUCTION.format(catalog=catalog_text()),
-        store=False,
-        timeout=25.0,
-        generation_config={"tool_choice": tool_choice, "thinking_level": thinking_level(), "thinking_summaries": "auto"},
-    )
-    thoughts: list[str] = []
-    calls: list[ToolCall] = []
-    raw: list[dict] = []
-    for step in interaction.steps or []:
-        if step.type == "user_input":
-            continue
-        raw.append(step.model_dump(exclude_none=True))
-        if step.type == "thought":
-            for part in getattr(step, "summary", None) or []:
-                text = getattr(part, "text", None)
-                if text:
-                    thoughts.append(text.strip())
-        elif step.type == "function_call":
-            calls.append(ToolCall(step.id, step.name, dict(step.arguments or {})))
-    return ModelTurn(thoughts, calls, interaction.output_text or "", raw)
-
-
-def tool_result(call: ToolCall, payload: dict) -> dict:
-    return {"type": "function_result", "name": call.name, "call_id": call.id, "result": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}
+def call_model(model: str, session: Any, force_final: bool = False) -> ModelTurn:
+    """Um passo do agente no provedor da sessão. `model` identifica o modelo nos registros e testes."""
+    return session.step(force_final, FINAL_TOOLS)
 
 
 def clean_thought(text: str) -> str:
@@ -662,34 +665,35 @@ class Agent:
 
 async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
     models = agent_models()
-    primary = gemini_models()[0]
-    for model_index, model in enumerate(models):
+    chain = configured_chain()
+    preferred = chain[0] if chain else None
+    for model_index, spec in enumerate(models):
+        model = spec.model
         if model_index:
-            yield emit("model_fallback", {"model": model, "message": "O modelo anterior falhou. O Aster recomeçou com o reserva."})
-        elif model != primary:
-            yield emit("model_fallback", {"model": model, "message": "O modelo principal está sem cota no momento. O Aster está usando o reserva."})
+            yield emit("model_fallback", {"model": model, "provider": spec.provider, "message": "O modelo anterior falhou. O Aster recomeçou com o reserva."})
+        elif spec != preferred:
+            yield emit("model_fallback", {"model": model, "provider": spec.provider, "message": "O modelo principal está sem cota no momento. O Aster está usando o reserva."})
         agent = Agent()
-        history: list[dict] = [{"type": "user_input", "content": [{"type": "text", "text": user_prompt(request)}]}]
+        session = make_session(spec, provider_key(spec.provider), SYSTEM_INSTRUCTION.format(catalog=catalog_text()), TOOLS, user_prompt(request), thinking_level())
         corrections = 0
         failure: GenerationFailure | None = None
         for step in range(MAX_AGENT_STEPS):
             force_final = step == MAX_AGENT_STEPS - 1
-            yield emit("agent_thinking", {"step": step + 1, "model": model})
+            yield emit("agent_thinking", {"step": step + 1, "model": model, "provider": spec.provider})
             try:
-                turn = await asyncio.to_thread(call_model, model, history, force_final)
+                turn = await asyncio.to_thread(call_model, model, session, force_final)
             except Exception as error:
                 failure = classify_generation_error(error)
                 # modelo sem cota, fora do ar ou lento demais: pula nas próximas perguntas
                 if failure.try_fallback and failure.code != "invalid_answer":
-                    block_model(model)
+                    block_model(spec)
                 break
             for thought in turn.thoughts:
                 yield emit("agent_thought", {"text": clean_thought(thought)})
-            history.extend(turn.raw_steps)
             if not turn.calls:
-                history.append({"type": "user_input", "content": [{"type": "text", "text": "Use uma das ferramentas. Para terminar, chame responder ou sem_base."}]})
+                session.nudge("Use uma das ferramentas. Para terminar, chame responder, conversar ou sem_base.")
                 continue
-            results: list[dict] = []
+            results: list[tuple[ToolCall, dict]] = []
             for call in turn.calls:
                 yield emit("tool_call", {"call_id": call.id, "tool": call.name, "args": {key: value for key, value in call.arguments.items() if key != "blocos"}})
                 if call.name == "responder":
@@ -703,25 +707,26 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
                         if corrections > 2:
                             failure = classify_generation_error(problem)
                             break
-                        results.append(tool_result(call, {"erro": f"Resposta recusada pela verificação: {problem} Corrija e chame responder de novo."}))
+                        results.append((call, {"erro": f"Resposta recusada pela verificação: {problem} Corrija e chame responder de novo."}))
                         continue
                     cited_ids = list(dict.fromkeys(citation for block in answer.blocks for citation in block.citation_ids))
                     yield emit("answer_check", {"call_id": call.id, "ok": True, "message": f"{len(cited_ids)} citações conferidas no acervo"})
                     yield emit("answer_ready", {
                         "blocks": [block.model_dump() for block in answer.blocks],
                         "sources": [agent.seen[citation].public() for citation in cited_ids],
-                        "mode": "gemini",
+                        "mode": "ai",
                         "model": model,
-                        "used_fallback": model != primary,
+                        "provider": spec.provider,
+                        "used_fallback": spec != preferred,
                         "steps": step + 1,
                     })
                     return
                 if call.name == "conversar":
                     text = str(call.arguments.get("texto", "")).strip()[:900]
                     if text:
-                        yield emit("answer_ready", {"blocks": [{"text": text, "citation_ids": []}], "sources": [], "mode": "gemini", "model": model, "used_fallback": model != primary, "steps": step + 1, "kind": "chat"})
+                        yield emit("answer_ready", {"blocks": [{"text": text, "citation_ids": []}], "sources": [], "mode": "ai", "model": model, "provider": spec.provider, "used_fallback": spec != preferred, "steps": step + 1, "kind": "chat"})
                         return
-                    results.append(tool_result(call, {"erro": "Texto vazio."}))
+                    results.append((call, {"erro": "Texto vazio."}))
                     continue
                 if call.name == "sem_base":
                     reason = str(call.arguments.get("motivo", "")).strip()[:300]
@@ -730,10 +735,10 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
                 payload, events = await asyncio.to_thread(agent.run_tool, call)
                 for kind, data in events:
                     yield emit(kind, data)
-                results.append(tool_result(call, payload))
+                results.append((call, payload))
             if failure:
                 break
-            history.extend(results)
+            session.add_results(results)
         else:
             failure = GenerationFailure("too_many_steps", "O Aster não conseguiu concluir a pesquisa a tempo. Tente uma pergunta mais direta.", True)
         if failure and (not failure.try_fallback or model_index + 1 >= len(models)):
@@ -780,7 +785,121 @@ def warm_library() -> None:
 @app.get("/api/health")
 def health():
     lib = library()
-    return {"status": "ok", "mode": "gemini" if gemini_api_key() else "local", "materials": len(lib.documents), "passages": len(lib.passages), "pages": len(lib.pages), "model": agent_models()[0] if gemini_api_key() else None}
+    models = agent_models()
+    active = models[0] if models else None
+    return {
+        "status": "ok",
+        "mode": "ai" if active else "local",
+        "materials": len(lib.documents),
+        "passages": len(lib.passages),
+        "pages": len(lib.pages),
+        "model": active.model if active else None,
+        "provider": active.provider if active else None,
+    }
+
+
+# ---------------------------------------------------------------- modelos e chaves
+
+class KeyBody(BaseModel):
+    key: str = Field(min_length=8, max_length=400)
+
+
+class ChainItem(BaseModel):
+    provider: str
+    model: str = Field(min_length=1, max_length=160)
+
+
+class ChainBody(BaseModel):
+    chain: list[ChainItem] = Field(max_length=6)
+
+
+class TestBody(BaseModel):
+    model: str = Field(min_length=1, max_length=160)
+
+
+def require_provider(provider: str) -> None:
+    if provider not in PROVIDERS:
+        raise HTTPException(status_code=404, detail="Provedor desconhecido")
+
+
+def settings_view() -> dict:
+    """Estado das chaves e da fila. Nunca devolve a chave inteira."""
+    saved = load_settings()
+    providers = []
+    for provider, info in PROVIDERS.items():
+        key = provider_key(provider)
+        providers.append({"id": provider, "label": info["label"], "site": info["site"], "keys_url": info["keys_url"], "configured": bool(key), "source": key_source(provider), "masked": mask(key) if key else None})
+    now = time.time()
+    chain = [{**spec.public(), "available": bool(provider_key(spec.provider)), "paused": _model_blocked_until.get(blocked_key(spec), 0) > now} for spec in configured_chain()]
+    return {"providers": providers, "chain": chain, "custom_chain": bool(saved.get("chain")), "default_chain": [spec.public() for spec in default_chain()]}
+
+
+@app.get("/api/settings")
+def get_settings():
+    return settings_view()
+
+
+@app.put("/api/settings/keys/{provider}")
+def put_key(provider: str, body: KeyBody):
+    require_provider(provider)
+    data = load_settings()
+    data.setdefault("keys", {})[provider] = body.key.strip()
+    save_settings(data)
+    for blocked in [item for item in _model_blocked_until if item.startswith(f"{provider}:")]:
+        _model_blocked_until.pop(blocked, None)
+    return settings_view()
+
+
+@app.delete("/api/settings/keys/{provider}")
+def delete_key(provider: str):
+    require_provider(provider)
+    data = load_settings()
+    data.get("keys", {}).pop(provider, None)
+    save_settings(data)
+    return settings_view()
+
+
+@app.put("/api/settings/chain")
+def put_chain(body: ChainBody):
+    for item in body.chain:
+        require_provider(item.provider)
+    data = load_settings()
+    data["chain"] = [item.model_dump() for item in body.chain]
+    save_settings(data)
+    for item in body.chain:
+        _model_blocked_until.pop(f"{item.provider}:{item.model}", None)
+    return settings_view()
+
+
+def provider_failure(error: Exception) -> HTTPException:
+    failure = classify_generation_error(error)
+    status = 400 if failure.code in {"invalid_key", "access_denied", "billing_required", "invalid_request", "model_unavailable"} else 502
+    return HTTPException(status_code=status, detail={"code": failure.code, "message": failure.message})
+
+
+@app.get("/api/providers/{provider}/models")
+def get_provider_models(provider: str):
+    require_provider(provider)
+    key = provider_key(provider)
+    if not key:
+        raise HTTPException(status_code=400, detail={"code": "no_key", "message": "Cadastre uma chave antes de listar os modelos."})
+    try:
+        return {"models": list_models(provider, key)}
+    except Exception as error:
+        raise provider_failure(error) from None
+
+
+@app.post("/api/providers/{provider}/test")
+def post_provider_test(provider: str, body: TestBody):
+    require_provider(provider)
+    key = provider_key(provider)
+    if not key:
+        raise HTTPException(status_code=400, detail={"code": "no_key", "message": "Cadastre uma chave antes de testar."})
+    try:
+        return test_model(ModelSpec(provider, body.model), key)
+    except Exception as error:
+        failure = classify_generation_error(error)
+        return {"ok": False, "code": failure.code, "message": failure.message}
 
 
 @app.get("/api/materials")
@@ -840,12 +959,13 @@ async def run_tutor(request: AskRequest):
             elapsed = round((time.perf_counter() - started) * 1000)
             return f"data: {json.dumps({'run_id': run_id, 'seq': seq, 't': elapsed, 'type': kind, 'data': data or {}}, ensure_ascii=False)}\n\n"
 
-        mode = "gemini" if gemini_api_key() else "local"
-        yield emit("run_started", {"question": request.question, "mode": mode, "model": gemini_models()[0] if mode == "gemini" else None})
+        models = agent_models()
+        mode = "ai" if models else "local"
+        yield emit("run_started", {"question": request.question, "mode": mode, "model": models[0].model if models else None, "provider": models[0].provider if models else None})
         if not material_paths():
             yield emit("run_failed", {"code": "no_materials", "message": "Nenhuma aula foi encontrada no acervo."})
             return
-        runner = run_agent(request, emit) if mode == "gemini" else run_local(request, emit)
+        runner = run_agent(request, emit) if mode == "ai" else run_local(request, emit)
         try:
             async for chunk in runner:
                 yield chunk
