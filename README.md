@@ -191,9 +191,15 @@ A rota `/simulados` monta **uma prova diferente a cada vez**. O Aster sorteia p�
 - três formatos que se alternam: afirmações (I–IV), caso com cálculo e asserção e razão;
 - um comentário para cada alternativa, como num gabarito comentado, e a página da aula que sustenta a resposta.
 
-Antes de montar, a tela pergunta: **quer que use todas as aulas ou só depois da primeira prova?** A segunda opção usa só as 4 últimas aulas.
+Antes de montar, a tela pergunta: **quer que use todas as aulas ou só depois da primeira prova?** A segunda opção foca nas aulas 11 e 12 (a Prova 1 cobriu da 1 à 10) e traz cerca de um quarto das questões das aulas anteriores, como revisão.
 
-O servidor confere cada questão antes de mostrar: cinco alternativas distintas, uma única correta e comentários coerentes com o gabarito. As alternativas são embaralhadas para o gabarito não se concentrar numa letra. Se a IA não entregar todas (ou não houver chave), a prova é completada com o banco de 12 questões conferidas à mão.
+O servidor confere cada questão antes de mostrar:
+
+1. **Formato:** cinco alternativas distintas, uma única correta e comentários coerentes com o gabarito.
+2. **Segunda leitura:** outro pedido à IA resolve a prova com os slides, sem ver o gabarito. Questão em que a resposta dela não bate com o gabarito é descartada, porque é ambígua ou o gabarito está errado.
+3. **Embaralhamento:** as alternativas mudam de ordem para o gabarito não se concentrar numa letra.
+
+Para sobrar questão depois da conferência, o Aster pede algumas a mais. Se um modelo demora mais de 10 segundos, o próximo da fila começa junto e vale a primeira prova válida. Se a IA não entregar todas (ou não houver chave), a prova é completada com o banco de 12 questões conferidas à mão.
 
 Enquanto a prova é montada, o Aster aparece lendo as páginas sorteadas e desenhando cada questão no quadro. A correção pode ser a cada questão ou só no final.
 
@@ -238,6 +244,7 @@ Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida)
 - **Dados pessoais:** CPF, cartão, e-mail e telefone são trocados por marcadores antes de a pergunta ir para a IA ou para a busca na web, e a resposta avisa o que foi ocultado.
 - **Prompt injection:** a pergunta vai entre `<pergunta_do_aluno>`, e o texto de regras manda tratar a pergunta, a conversa e tudo o que as ferramentas devolvem (slides e páginas da web) como dado, nunca como instrução.
 - **Citações conferidas:** o servidor recusa respostas que citem fontes que a IA não recebeu.
+- **Resposta fiel à fonte:** se um bloco da resposta diz mais do que os slides citados dizem (menos de 30% dos termos em comum), a IA precisa reescrever antes de a resposta aparecer.
 - **Limite de tempo:** uma pergunta para em 90 segundos, somando todos os modelos.
 
 ## <img src="docs/icones/pastas.svg" width="22" align="center" alt=""> Estrutura de pastas

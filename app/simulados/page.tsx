@@ -56,6 +56,8 @@ export default function Simulados() {
   const [ready, setReady] = useState(false);
   const [note, setNote] = useState("");
   const [model, setModel] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [verified, setVerified] = useState(false);
   const [cursor, setCursor] = useState<CursorState>(null);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number>>({});
@@ -64,13 +66,15 @@ export default function Simulados() {
   const run = useRef(0);
   const abort = useRef<AbortController | null>(null);
   const cursorKey = useRef(0);
+  const checkingRef = useRef(false);
+  checkingRef.current = checking;
 
   useEffect(() => {
     fetch("/api/simulado/opcoes").then((response) => (response.ok ? response.json() : null)).then((data) => data && setOptions(data)).catch(() => undefined);
     return () => { run.current++; abort.current?.abort(); };
   }, []);
 
-  const scopeIds = useMemo(() => (options ? options[scope].map((item) => item.id) : scope === "recentes" ? ["aula-9", "aula-10", "aula-11", "aula-12"] : []), [options, scope]);
+  const scopeIds = useMemo(() => (options ? options[scope].map((item) => item.id) : scope === "recentes" ? ["aula-11", "aula-12"] : []), [options, scope]);
   const point = useCallback((target: string, label: string, gesture: NonNullable<CursorState>["gesture"]) => setCursor({ target, label, gesture, key: ++cursorKey.current }), []);
 
   /** Questões do banco fixo, para completar quando a IA não escreve todas (ou não há chave). */
@@ -97,7 +101,7 @@ export default function Simulados() {
     abort.current = controller;
     const alive = () => token === run.current;
     forgetDrawn((target) => target.startsWith("sim-"));
-    setSlots([]); setDeck([]); setReady(false); setNote(""); setModel(null); setCursor(null);
+    setSlots([]); setDeck([]); setReady(false); setNote(""); setModel(null); setCursor(null); setChecking(false); setVerified(false);
     setPhase("building");
 
     const written: Item[] = [];
@@ -109,7 +113,7 @@ export default function Simulados() {
       let turn = 0;
       while (alive() && !finished) {
         const pending = planned.filter((slot) => !written[slot.n - 1]);
-        if (pending.length && !written.length) {
+        if (pending.length && !written.length && !checkingRef.current) {
           const slot = pending[turn++ % pending.length];
           point(`ghost-${slot.n}`, `Lendo ${lectureLabel(slot.document_id)}, p. ${slot.pages[0]} a ${slot.pages[slot.pages.length - 1]}`, "read");
         }
@@ -139,7 +143,8 @@ export default function Simulados() {
           if (event.type === "plan") { planned = event.data.items as Slot[]; setSlots(planned); }
           if (event.type === "question") arrived.push(event.data.question as Item);
           if (event.type === "failed") failure = String(event.data.message ?? "");
-          if (event.type === "done") setModel(String(event.data.model ?? ""));
+          if (event.type === "checking") { setChecking(true); point("build-title", "Resolvendo a prova para conferir o gabarito", "point"); }
+          if (event.type === "done") { setModel(String(event.data.model ?? "")); setVerified(!!event.data.verified); setChecking(false); }
         }
       }
       if (!alive()) return;
@@ -242,7 +247,9 @@ export default function Simulados() {
                         <label key={value} className={`scope-card ${scope === value ? "is-on" : ""}`}>
                           <input type="radio" name="scope" value={value} checked={scope === value} onChange={() => setScope(value)} />
                           <strong>{value === "recentes" ? "Só depois da primeira prova" : "Todas as aulas"}</strong>
-                          <small>{options ? lectureList(options[value].map((item) => item.id)) : value === "recentes" ? "As 4 últimas aulas" : "Da primeira à última"}</small>
+                          <small>{value === "recentes"
+                            ? `${options ? lectureList(options.recentes.map((item) => item.id)) : "As duas últimas aulas"}, com algumas questões das anteriores`
+                            : options ? lectureList(options.todas.map((item) => item.id)) : "Da primeira à última"}</small>
                           {options && value === "recentes" && <span className="scope-subjects">{options.recentes.map((item) => item.subject).filter(Boolean).join(" · ")}</span>}
                         </label>
                       ))}
@@ -281,8 +288,8 @@ export default function Simulados() {
               <header className="build-head">
                 <Mascot mood={ready ? "success" : "writing"} size={54} />
                 <div>
-                  <h2>{ready ? "Prova pronta." : deck.length ? "Escrevendo as questões" : slots.length ? "Lendo os slides sorteados" : "Sorteando as páginas"}</h2>
-                  <p>{ready ? `${deck.length} questões${model ? `, escritas com ${model}` : ""}.` : `${scope === "recentes" ? "Só depois da primeira prova" : "Todas as aulas"} · ${count} questões no formato da Prova 1`}</p>
+                  <h2 data-cursor="build-title">{ready ? "Prova pronta." : deck.length ? "Escrevendo as questões" : checking ? "Conferindo o gabarito" : slots.length ? "Lendo os slides sorteados" : "Sorteando as páginas"}</h2>
+                  <p>{ready ? `${deck.length} questões${model ? `, escritas com ${model}` : ""}${verified ? ". Gabarito conferido numa segunda leitura" : ""}.` : `${scope === "recentes" ? "Só depois da primeira prova" : "Todas as aulas"} · ${count} questões no formato da Prova 1`}</p>
                 </div>
                 <span className="build-count"><b>{deck.length}</b> de {count}</span>
               </header>
