@@ -577,9 +577,10 @@ def unsupported_blocks(answer: GeneratedAnswer, seen: dict) -> list[int]:
 FINAL_TOOLS = ("responder", "conversar", "sem_base")
 
 
-def call_model(model: str, session: Any, force_final: bool = False) -> ModelTurn:
-    """Um passo do agente no provedor da sessão. `model` identifica o modelo nos registros e testes."""
-    return session.step(force_final, FINAL_TOOLS)
+def call_model(model: str, session: Any, force_final: bool = False, final_tools: tuple[str, ...] = FINAL_TOOLS) -> ModelTurn:
+    """Um passo do agente no provedor da sessão. `model` identifica o modelo nos registros e testes.
+    `final_tools` são as ferramentas que encerram: a conversa leve só tem `conversar`."""
+    return session.step(force_final, final_tools)
 
 
 def clean_thought(text: str) -> str:
@@ -933,6 +934,7 @@ def quick_reply(emit, text: str, reason: str):
     return emit("answer_ready", {"blocks": [{"text": text, "citation_ids": []}], "sources": [], "mode": "local", "model": None, "used_fallback": False, "steps": 0, "kind": "chat", "guard": reason})
 
 
+CHAT_TOOL_NAME = "conversar"
 CHAT_FALLBACK = "Oi! Eu sou o Aster. Pode perguntar qualquer coisa das aulas de IA, que eu pesquiso e mostro de onde tirei."
 
 
@@ -943,7 +945,9 @@ async def run_chat(request: AskRequest, emit) -> AsyncIterator[str]:
         try:
             session = make_session(spec, provider_key(spec.provider), SYSTEM_INSTRUCTION.format(catalog=catalog_text()), [CHAT_TOOL, REMEMBER_TOOL], user_prompt(request), "minimal")
             for attempt in range(2):
-                turn = await asyncio.wait_for(asyncio.to_thread(call_model, spec.model, session, attempt == 1), timeout=20)
+                # depois de guardar um fato, a segunda volta obriga a responder; forçar responder/sem_base aqui
+                # dava 400 (não existem na conversa leve) e toda apresentação caía na frase padrão
+                turn = await asyncio.wait_for(asyncio.to_thread(call_model, spec.model, session, attempt == 1, (CHAT_TOOL_NAME,)), timeout=20)
                 results: list[tuple[ToolCall, dict]] = []
                 for call in turn.calls:
                     if call.name == "conversar":
@@ -959,7 +963,9 @@ async def run_chat(request: AskRequest, emit) -> AsyncIterator[str]:
                 if not results:
                     break
                 session.add_results(results)
-        except Exception:
+        except Exception as error:
+            # sem registro, uma falha de todos os modelos virava a frase padrão sem ninguém saber por quê
+            print(f"[aster] conversa leve falhou com {spec.model}: {type(error).__name__}", flush=True)
             continue
     yield emit("answer_ready", {"blocks": [{"text": CHAT_FALLBACK, "citation_ids": []}], "sources": [], "mode": "local", "model": None, "used_fallback": False, "steps": 0, "kind": "chat"})
 
@@ -1260,6 +1266,10 @@ async def run_tutor(request: AskRequest, http_request: Request):
     light = is_small_talk(question)
     # portões no servidor: valem mesmo se o modelo estiver disposto a obedecer
     guard = "override" if tries_override(question) else None
+    # o aluno contando de si ("me chamo Vitor e prefiro exemplos práticos") é conversa, mesmo que alguma palavra
+    # apareça nos slides; com assunto de IA ou com pergunta junto, segue para a pesquisa normal
+    if not guard and not light and PERSONAL.search(question) and not mentions_ai(question) and "?" not in question:
+        light = True
     if not guard and not light and not in_scope(request):
         if PERSONAL.search(question):
             light = True

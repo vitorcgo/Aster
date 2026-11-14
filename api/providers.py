@@ -124,6 +124,15 @@ def _get_json(url: str, key: str, timeout: float = 15) -> dict:
 # ---------------------------------------------------------------- Gemini
 
 _no_thinking: set[str] = set()
+# níveis de raciocínio que um modelo recusou (o gemini-4 não aceita "minimal", por exemplo)
+_bad_levels: set[tuple[str, str]] = set()
+
+
+def _thinking_refused(error: Exception) -> bool:
+    """400 dizendo que o nível de raciocínio não vale para o modelo. A API de interações lança outra classe
+    de erro que não é genai_errors.APIError, então olhamos o código e a mensagem de qualquer exceção."""
+    code = getattr(error, "code", None) or getattr(error, "status_code", None)
+    return str(code) == "400" and "thinking" in str(error).lower()
 
 
 class GeminiSession:
@@ -145,20 +154,31 @@ class GeminiSession:
         tool_choice: Any = {"allowed_tools": {"mode": "any", "tools": list(final_tools)}} if force_final and final_tools else "any"
         config: dict[str, Any] = {"tool_choice": tool_choice}
         if self.spec.model not in _no_thinking:
-            config.update({"thinking_level": self.thinking, "thinking_summaries": "auto"})
+            level = "low" if (self.spec.model, self.thinking) in _bad_levels else self.thinking
+            config.update({"thinking_level": level, "thinking_summaries": "auto"})
 
         def create(generation_config: dict):
             return client.interactions.create(model=self.spec.model, input=self.history, tools=self.tools, system_instruction=self.system, store=False, timeout=25.0, generation_config=generation_config)
 
         try:
             interaction = create(config)
-        except genai_errors.APIError as error:
-            # alguns modelos (Gemma, por exemplo) não aceitam as opções de raciocínio
-            if error.code == 400 and "thinking_level" in config:
+        except Exception as error:
+            if "thinking_level" not in config or not (_thinking_refused(error) or (isinstance(error, genai_errors.APIError) and error.code == 400)):
+                raise
+            if config["thinking_level"] != "low":
+                # o nível pedido não vale para este modelo: tenta o padrão, que todos os modelos com raciocínio aceitam
+                _bad_levels.add((self.spec.model, self.thinking))
+                try:
+                    interaction = create({**config, "thinking_level": "low"})
+                except Exception as retry:
+                    if not _thinking_refused(retry):
+                        raise
+                    _no_thinking.add(self.spec.model)
+                    interaction = create({"tool_choice": tool_choice})
+            else:
+                # alguns modelos (Gemma, por exemplo) não aceitam opção de raciocínio nenhuma
                 _no_thinking.add(self.spec.model)
                 interaction = create({"tool_choice": tool_choice})
-            else:
-                raise
         thoughts: list[str] = []
         calls: list[ToolCall] = []
         raw: list[dict] = []
