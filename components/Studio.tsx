@@ -58,6 +58,10 @@ export function Studio() {
   const cursorKey = useRef(0);
   const renderedKey = useRef<string | null>(null);
   const tabsRef = useRef<DocTab[]>([]);
+  const evidenceSeen = useRef(false);
+  const replayPoll = useRef(0);
+
+  useEffect(() => () => { window.clearInterval(replayPoll.current); controller.current?.abort(); }, []);
 
   turnsRef.current = turns;
   tabsRef.current = tabs;
@@ -222,12 +226,14 @@ export function Studio() {
           if (!alive()) return;
           if (payload) {
             const id = pageTabId(payload.document_id, payload.page);
+            evidenceSeen.current = false;
             setFocus({ sourceId: lecture.id, turnId });
             const known = tabsRef.current.some((tab) => tab.id === id);
             if (known) openTab({ id, kind: "page", page: payload });
             else await drawSheet({ id, kind: "page", page: payload }, "Voltando à fonte");
             if (!alive()) return;
-            await gate(evidenceGate, 3200);
+            // o trecho pode ter sido marcado antes de começarmos a esperar
+            if (!evidenceSeen.current) await gate(evidenceGate, 3200);
             if (!alive()) return;
             point("evidence", "Selecionando o trecho", "select");
             await sleep(2300);
@@ -369,7 +375,8 @@ export function Studio() {
     setTurns(turnsRef.current);
     for (const event of turn.events) enqueue(event, turn.id, myToken);
     const finish = () => { if (myToken === token.current) setReplaying(false); };
-    const poll = window.setInterval(() => { if (!queue.current.length && !draining.current) { window.clearInterval(poll); finish(); } }, 400);
+    window.clearInterval(replayPoll.current);
+    replayPoll.current = window.setInterval(() => { if (!queue.current.length && !draining.current) { window.clearInterval(replayPoll.current); finish(); } }, 400);
   }, [activeTurnId, enqueue]);
 
   const onRevealDone = useCallback((id: string) => {
@@ -431,6 +438,14 @@ export function Studio() {
   const reset = useCallback(() => {
     if (running) return;
     token.current++;
+    queue.current = [];
+    window.clearInterval(replayPoll.current);
+    setRevealId(null);
+    setHoldId(null);
+    setStagingId(null);
+    setCompact(false);
+    setReplaying(false);
+    setScanning(false);
     setTurns([]);
     turnsRef.current = [];
     setTabs([]);
@@ -497,7 +512,7 @@ export function Studio() {
                     focusWebId={focusWebId}
                     scanning={scanning}
                     onRendered={() => { renderedKey.current = activeTab; renderGate.current?.(); }}
-                    onEvidence={() => evidenceGate.current?.()}
+                    onEvidence={() => { evidenceSeen.current = true; evidenceGate.current?.(); }}
                   />
                 </motion.div>
               </div>
