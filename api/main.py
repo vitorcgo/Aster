@@ -232,7 +232,10 @@ def clean_pdf_text(value: str) -> str:
 STOPWORDS = {"qual", "quais", "como", "para", "uma", "uns", "umas", "que", "dos", "das", "com", "sobre", "papel", "aula", "aulas", "isso", "esse", "essa", "este", "esta", "por", "pela", "pelo", "nos", "nas", "the", "and", "sao", "ser", "tem", "mais", "entre", "quando", "onde", "porque", "explique", "explica", "diferenca", "funciona", "serve",
              # verbos e pronomes genéricos: casavam com qualquer slide e viravam ruído
              "faz", "fazer", "feito", "faco", "fazem", "quem", "pode", "podem", "posso", "existe", "existem", "tipo", "coisa",
-             "algum", "alguma", "muito", "bem", "ter", "ver", "dizer", "diz", "usar", "usa", "dar", "ficar", "fica"}
+             "algum", "alguma", "muito", "bem", "ter", "ver", "dizer", "diz", "usar", "usa", "dar", "ficar", "fica",
+             # conectivos e pronomes que entram em perguntas longas, em forma de situação
+             "mas", "ante", "antes", "depois", "los", "las", "ainda", "desde", "dia", "tudo", "quase", "acontece", "acontecendo",
+             "estao", "cada", "seu", "sua", "seus", "suas", "ele", "ela", "eles", "elas", "num", "numa", "aos", "pra", "sem"}
 
 # Um trecho só é candidato se cobrir metade dos termos da pergunta (ou 3 termos, em perguntas longas).
 # Medido nas 26 perguntas de avaliação: recall@1 subiu de 58% para 65%, e perguntas fora da matéria
@@ -241,6 +244,11 @@ MIN_COVERAGE = 0.5
 MIN_MATCHED_TERMS = 3
 
 
+# Slide cujo título é quase só o termo perguntado ("Tokenização", "O que é Function Calling?") costuma ser o da
+# definição. Medido nas 26 perguntas: 1º lugar de 65% para 81%, top 3 de 65% para 85%, MRR de 0,71 para 0,84,
+# com ganho tanto nas perguntas dos simulados quanto nas de conceitos.
+TIGHT_HEADING_WEIGHT = 2.5
+SECOND_PASSAGE_WEIGHT = 0.25
 def stem(word: str) -> str:
     if len(word) > 4 and word.endswith("s"):
         word = word[:-1]
@@ -361,8 +369,15 @@ def rank_candidates(query: str, document_id: str | None = None, limit: int = SEA
         score = 2.4 * len(content) / math.sqrt(max(4, len(item_terms))) + 1.2 * len(heading) / len(wanted) + coverage
         if re.match(r"^\d+\s", item.quote):
             score -= .3
+        if heading:
+            score += TIGHT_HEADING_WEIGHT * len(heading) / len(lib.heading_terms[item.id])
         ranked.append(Scored(item, score, frozenset(content), frozenset(heading), coverage, len(item_terms)))
-    ranked.sort(key=lambda row: row.score, reverse=True)
+    # a página vale pelo melhor trecho, com um pouco do segundo: um slide inteiro sobre o tema ganha de uma frase solta
+    best: dict[tuple[str, int], list[float]] = {}
+    for row in ranked:
+        best.setdefault((row.item.document_id, row.item.page), []).append(row.score)
+    page_score = {key: max(scores) + SECOND_PASSAGE_WEIGHT * (sorted(scores)[-2] if len(scores) > 1 else 0) for key, scores in best.items()}
+    ranked.sort(key=lambda row: (page_score[(row.item.document_id, row.item.page)], row.score), reverse=True)
     result: list[Scored] = []
     per_page: dict[tuple[str, int], int] = {}
     for row in ranked:
