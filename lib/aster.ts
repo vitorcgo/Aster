@@ -15,7 +15,7 @@ export type WebSource = {
   url: string;
   domain: string;
   snippet: string;
-  provider: "google" | "wikipedia" | string;
+  provider: "google" | "duckduckgo" | "wikipedia" | string;
 };
 
 export type Source = LectureSource | WebSource;
@@ -239,4 +239,10 @@ export function siteName(domain: string | undefined) {
 export function normalizeSource(raw: any): Source {
   if (raw?.kind === "web" || (!raw?.document_id && raw?.url)) return { ...raw, kind: "web", domain: raw.domain ?? "" } as WebSource;
   return { ...raw, kind: "aula" } as LectureSource;
+}
+
+
+/** Nome do buscador usado na pesquisa web, para o rótulo "via ...". */
+export function providerLabel(provider?: string | null) {
+  return provider === "google" ? "Google" : provider === "duckduckgo" ? "DuckDuckGo" : "Wikipédia";
 }

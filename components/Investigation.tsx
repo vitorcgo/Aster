@@ -6,7 +6,7 @@ import { AcervoGrid } from "./AcervoGrid";
 import { Drawable } from "./Drawable";
 import { Icon, type IconName } from "./Icon";
 import { Mascot } from "./Mascot";
-import { faviconUrl, lectureLabel, siteName, type Material, type TraceNode, type Turn } from "@/lib/aster";
+import { faviconUrl, lectureLabel, siteName, type Material, type TraceNode, type Turn, providerLabel } from "@/lib/aster";
 
 type Props = {
   turn: Turn | null;
@@ -95,7 +95,7 @@ function NodeBody({ node, materials }: { node: TraceNode; materials: Material[] 
               ))}
             </ul>
           ) : <p className="node-meta">Sem resultados</p>}
-          {node.provider && <p className="node-meta">via {node.provider === "google" ? "Google" : "Wikipédia"}</p>}
+          {node.provider && <p className="node-meta">via {providerLabel(node.provider)}</p>}
         </>
       );
     case "check":

@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef } from "react";
 import { Drawable } from "./Drawable";
 import { Icon } from "./Icon";
-import { faviconUrl, lectureLabel, siteName, type PagePayload, type WebSource } from "@/lib/aster";
+import { faviconUrl, lectureLabel, siteName, type PagePayload, type WebSource, providerLabel } from "@/lib/aster";
 
 const PdfViewer = dynamic(() => import("./PdfViewer"), { ssr: false, loading: () => <div className="pdf-boot" /> });
 
@@ -41,7 +41,7 @@ function WebPanel({ tab, focusId }: { tab: Extract<DocTab, { kind: "web" }>; foc
       <p className="web-query">
         <Icon name="search" size={15} />
         <span>“{tab.query}”</span>
-        <span className="web-provider">via {tab.provider === "google" ? "Google" : "Wikipédia"}</span>
+        <span className="web-provider">via {providerLabel(tab.provider)}</span>
       </p>
       {tab.results.length === 0 && <p className="web-empty">A pesquisa não trouxe resultados.</p>}
       <ol className="web-results">

@@ -3,7 +3,7 @@
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "../Icon";
-import { lectureLabel, type RunEvent } from "@/lib/aster";
+import { lectureLabel, type RunEvent, providerLabel } from "@/lib/aster";
 import { labGet } from "@/lib/lab";
 
 type AgentInfo = { system_prompt: string; tools: { name: string; description: string; parameters: unknown }[]; max_steps: number; chain: { provider: string; model: string }[] };
@@ -53,7 +53,7 @@ function reactSteps(events: RunEvent[]): Step[] {
     } else if (event.type === "page_read") {
       steps.push({ kind: "observation", title: "Observation", body: `leu ${lectureLabel(data.document_id, data.page)}: “${data.heading}”, ${(data.passages ?? []).length} trechos citáveis`, t: event.t });
     } else if (event.type === "web_results") {
-      steps.push({ kind: "observation", title: "Observation", body: `${(data.results ?? []).length} fontes da web via ${data.provider === "google" ? "Google" : "Wikipédia"}`, t: event.t });
+      steps.push({ kind: "observation", title: "Observation", body: `${(data.results ?? []).length} fontes da web via ${providerLabel(data.provider)}`, t: event.t });
     } else if (event.type === "answer_check") {
       steps.push({ kind: data.ok ? "observation" : "problem", title: data.ok ? "Verificação do servidor" : "Resposta recusada", body: data.message, t: event.t });
     } else if (event.type === "answer_ready") {

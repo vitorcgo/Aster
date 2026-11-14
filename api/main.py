@@ -296,6 +296,43 @@ def wikipedia_search(query: str, language: str = "pt") -> list[dict]:
     return results
 
 
+def duckduckgo_search(query: str) -> list[dict]:
+    """Resultados de qualquer site (documentação, tutoriais, artigos) pela versão HTML do DuckDuckGo, sem chave."""
+    import html
+    from urllib.parse import parse_qs, urlencode, urlparse
+    from urllib.request import Request, urlopen
+
+    cleaned = re.sub(r"[\"“”„«»]", " ", query)
+    request = Request(
+        "https://html.duckduckgo.com/html/?" + urlencode({"q": cleaned, "kl": "br-pt"}),
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36", "Accept-Language": "pt-BR,pt;q=0.9"},
+    )
+    with urlopen(request, timeout=8) as response:
+        page = response.read().decode("utf-8", "ignore")
+
+    def text(fragment: str) -> str:
+        return " ".join(html.unescape(re.sub(r"<[^>]+>", "", fragment)).split())
+
+    results = []
+    for block in re.findall(r'<div class="result results_links.*?(?=<div class="result results_links|<div id="links_wrapper_end"|$)', page, re.S):
+        link = re.search(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', block, re.S)
+        if not link:
+            continue
+        url = html.unescape(link.group(1))
+        if url.startswith("//"):
+            url = "https:" + url
+        target = parse_qs(urlparse(url).query).get("uddg")
+        if target:
+            url = target[0]
+        if "duckduckgo.com" in urlparse(url).netloc or "/y.js" in url:
+            continue  # anúncio
+        snippet = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', block, re.S)
+        results.append({"title": text(link.group(2))[:160], "url": url, "domain": _domain(url), "snippet": text(snippet.group(1))[:600] if snippet else ""})
+        if len(results) >= 4:
+            break
+    return results
+
+
 def web_search(query: str) -> tuple[str, list[dict]]:
     global _google_blocked_until
     if provider_key("gemini") and time.time() >= _google_blocked_until and os.getenv("ASTER_WEB_GOOGLE", "1") != "0":
@@ -306,6 +343,14 @@ def web_search(query: str) -> tuple[str, list[dict]]:
         except Exception as error:
             if isinstance(error, genai_errors.APIError) and error.code in (403, 429) or "429" in str(error):
                 _google_blocked_until = time.time() + 15 * 60
+    # sem Google: DuckDuckGo traz a internet toda; a Wikipédia fica de reserva
+    if os.getenv("ASTER_WEB_DUCKDUCKGO", "1") != "0":
+        try:
+            results = duckduckgo_search(query)
+            if results:
+                return "duckduckgo", results
+        except Exception as error:
+            print(f"[aster] DuckDuckGo falhou: {type(error).__name__}")
     try:
         results = wikipedia_search(query, "pt") or wikipedia_search(query, "en")
         return "wikipedia", results

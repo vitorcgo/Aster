@@ -360,6 +360,15 @@ class SecurityTest(unittest.TestCase):
         self.assertEqual(web_query("“Teste de Turing” “juiz”"), "Teste Turing juiz")
         self.assertEqual(web_query("como funciona o teste de turing?"), "teste turing")
 
+    def test_web_prefers_duckduckgo_over_wikipedia_without_google(self):
+        from api import main
+        found = [{"title": "O que é overfitting? - IBM", "url": "https://www.ibm.com/br-pt/topics/overfitting", "domain": "ibm.com", "snippet": "..."}]
+        with patch.dict(os.environ, {"ASTER_WEB_GOOGLE": "0"}), patch("api.main.duckduckgo_search", return_value=found), patch("api.main.wikipedia_search") as wiki:
+            self.assertEqual(main.web_search("overfitting"), ("duckduckgo", found))
+        wiki.assert_not_called()
+        with patch.dict(os.environ, {"ASTER_WEB_GOOGLE": "0"}), patch("api.main.duckduckgo_search", side_effect=OSError), patch("api.main.wikipedia_search", return_value=found):
+            self.assertEqual(main.web_search("overfitting")[0], "wikipedia")
+
     def test_masks_only_real_personal_data(self):
         text, found = security.mask_personal_data("cartão 4111 1111 1111 1111, fone (11) 98765-4321, Turing em 1950 e 2023, página 26")
         self.assertEqual(found, ["cartão", "telefone"])
