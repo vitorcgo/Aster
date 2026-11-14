@@ -71,7 +71,7 @@ e responde citando cada fonte. Cada passo aparece na tela no momento em que acon
   </tr>
   <tr>
     <td><b>Avaliação.</b> O placar das 26 perguntas de teste, uma peça por pergunta.</td>
-    <td><b>Simulados.</b> Questões com gabarito que aponta a página da aula.</td>
+    <td><b>Simulados.</b> O Aster escreve uma prova nova a cada vez, no formato da Prova 1.</td>
   </tr>
 </table>
 
@@ -185,7 +185,17 @@ Quando o Aster cita uma página coberta por uma etapa, a resposta oferece abri-l
 
 ## <img src="docs/icones/simulados.svg" width="22" align="center" alt=""> Simulados
 
-A rota `/simulados` tem questões em três níveis, com correção a cada questão ou só no final. Cada gabarito aponta a página da aula que o sustenta, e o link abre essa página na tela de estudo com o trecho marcado.
+A rota `/simulados` monta **uma prova diferente a cada vez**. O Aster sorteia páginas dos slides e a IA escreve questões inéditas no formato da Prova 1 da turma:
+
+- cinco alternativas, de A a E, com uma única correta;
+- três formatos que se alternam: afirmações (I–IV), caso com cálculo e asserção e razão;
+- um comentário para cada alternativa, como num gabarito comentado, e a página da aula que sustenta a resposta.
+
+Antes de montar, a tela pergunta: **quer que use todas as aulas ou só depois da primeira prova?** A segunda opção usa só as 4 últimas aulas.
+
+O servidor confere cada questão antes de mostrar: cinco alternativas distintas, uma única correta e comentários coerentes com o gabarito. As alternativas são embaralhadas para o gabarito não se concentrar numa letra. Se a IA não entregar todas (ou não houver chave), a prova é completada com o banco de 12 questões conferidas à mão.
+
+Enquanto a prova é montada, o Aster aparece lendo as páginas sorteadas e desenhando cada questão no quadro. A correção pode ser a cada questão ou só no final.
 
 ## <img src="docs/icones/rotas.svg" width="22" align="center" alt=""> Rotas da API
 
@@ -200,6 +210,7 @@ A documentação interativa fica em `http://127.0.0.1:8000/docs` (Swagger) e `/r
 | `GET`, `PUT`, `DELETE` | `/api/settings/...` | Chaves e fila de modelos (só no próprio computador) |
 | `GET`, `POST` | `/api/providers/{provedor}/models` e `/test` | Lista e testa modelos de um provedor |
 | `GET` | `/api/lab/...` | Dados reais de cada etapa do Laboratório |
+| `POST` | `/api/simulado/runs` | Monta uma prova nova (escopo e número de questões) e envia as questões em SSE |
 
 Todo erro volta no mesmo formato, com uma mensagem em português:
 
@@ -238,6 +249,7 @@ Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida)
 │   ├── providers.py     # Gemini, OpenAI e NVIDIA atrás da mesma interface
 │   ├── security.py      # limite por IP, dados pessoais e erros legíveis
 │   ├── lab.py           # dados das etapas do Laboratório
+│   ├── simulado.py      # provas novas escritas pela IA no formato da Prova 1
 │   ├── eval_set.py      # as 26 perguntas de avaliação
 │   └── test_main.py     # testes da API
 ├── app/                 # rotas do site: Estudar, Laboratório e Simulados
