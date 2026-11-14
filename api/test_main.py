@@ -126,6 +126,38 @@ class AgentTest(unittest.TestCase):
         self.assertIn(hit.id, prompts[1])
         self.assertEqual(events[-1]["type"], "answer_ready")
 
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_answer_must_match_the_cited_passage(self):
+        hit = search("overfitting")[0]
+        invented = "O overfitting foi descoberto em 1987 por pesquisadores japoneses e resolve falhas de hardware quântico em servidores distribuídos."
+        script = [
+            turn(("buscar_nas_aulas", {"consulta": "overfitting"})),
+            turn(("responder", {"blocos": [{"texto": invented, "citacoes": [hit.id]}]})),
+            turn(("responder", {"blocos": [{"texto": hit.quote, "citacoes": [hit.id]}]})),
+        ]
+        with patch("api.main.call_model", side_effect=script):
+            events = self.ask()
+        checks = [(event["data"]["ok"], event["data"]["message"]) for event in events if event["type"] == "answer_check"]
+        self.assertEqual([ok for ok, _ in checks], [False, True])
+        self.assertIn("diz mais do que as fontes", checks[0][1])
+        self.assertEqual(events[-1]["type"], "answer_ready")
+        # só uma chance: se insistir, a resposta passa em vez de travar a pergunta
+        with patch("api.main.call_model", side_effect=[script[0], script[1], script[1]]):
+            self.assertEqual(self.ask()[-1]["type"], "answer_ready")
+
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_long_query_gets_a_relaxed_second_try(self):
+        query = "overfitting regularização abacaxi helicóptero paralelepípedo bicicleta"
+        self.assertEqual(search(query), [])
+        script = [turn(("buscar_nas_aulas", {"consulta": query})), turn(("sem_base", {"motivo": "x"}))]
+        with patch("api.main.call_model", side_effect=script):
+            events = self.ask()
+        hits = next(event for event in events if event["type"] == "search_results")["data"]["hits"]
+        self.assertTrue(hits)
+        self.assertTrue(all("overfitting" in hit["quote"].lower() or "regulariza" in hit["quote"].lower() for hit in hits))
+        # uma palavra solta continua não achando nada
+        self.assertEqual(search("quem ganhou a copa de 2022"), [])
+
     def test_question_has_a_total_time_limit(self):
         with patch("api.main.AGENT_DEADLINE_SECONDS", 0), patch("api.main.call_model") as model:
             events = self.ask()
@@ -433,12 +465,51 @@ class SimuladoTest(unittest.TestCase):
         self.assertEqual(simulado.validate([self.entry(numero=9)], items, rng), [])
 
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
-    def test_recent_scope_uses_only_the_last_four_lectures(self):
+    def test_recent_scope_focuses_on_last_lectures_with_some_review(self):
+        import random
         from api import simulado
-        self.assertEqual(simulado.lecture_ids("recentes"), ["aula-9", "aula-10", "aula-11", "aula-12"])
+        self.assertEqual(simulado.lecture_ids("recentes"), ["aula-11", "aula-12"])
         self.assertEqual(len(simulado.lecture_ids("todas")), 12)
+        for count, review in ((3, 1), (5, 1), (8, 2), (10, 2)):
+            order = simulado.lecture_order("recentes", count, random.Random(count))
+            older = [document_id for document_id in order if document_id not in ("aula-11", "aula-12")]
+            self.assertEqual((len(order), len(older)), (count, review))
         with patch("api.simulado.generate", return_value=([], None)), patch("api.main.agent_models", return_value=("x",)):
             events = parse_events(self.client.post("/api/simulado/runs", json={"scope": "recentes", "count": 5}))
         self.assertEqual([event["type"] for event in events], ["plan", "failed"])
-        self.assertTrue(all(item["document_id"] in {"aula-9", "aula-10", "aula-11", "aula-12"} for item in events[0]["data"]["items"]))
         self.assertEqual(len(events[0]["data"]["items"]), 5)
+
+    def test_slow_model_does_not_hold_the_exam(self):
+        import time
+        from api import simulado
+        slow, fast, broken = MagicMock(provider="nvidia", model="lento"), MagicMock(provider="gemini", model="rapido"), MagicMock(provider="gemini", model="fora")
+
+        def work(spec):
+            if spec is broken:
+                raise OSError("503")
+            if spec is slow:
+                time.sleep(2)
+            return [spec.model]
+
+        started = time.monotonic()
+        with patch("api.main.agent_models", return_value=(broken, slow, fast)):
+            result = simulado.race(work, 6, stagger=0.3)
+        self.assertEqual(result, (["rapido"], "rapido"))
+        self.assertLess(time.monotonic() - started, 1.5)
+        with patch("api.main.agent_models", return_value=(broken,)):
+            self.assertEqual(simulado.race(work, 2, stagger=0.3), (None, None))
+
+    def test_second_reading_drops_questions_the_solver_disagrees_with(self):
+        from api import simulado
+        questions = [{"prompt": f"Questão {n}", "options": list("vwxyz"), "answer": 1, "source": {"document_id": "aula-11", "page": 3}} for n in (1, 2, 3)]
+        solver = turn(("responder_prova", {"respostas": [{"numero": 1, "letra": "B"}, {"numero": 2, "letra": "D"}, {"numero": 3, "letra": "b"}]}))
+        session = MagicMock()
+        session.step.return_value = solver
+        with patch("api.simulado.library") as lib, patch("api.simulado.make_session", return_value=session), patch("api.main.agent_models", return_value=(MagicMock(provider="gemini", model="m"),)), patch("api.main.provider_key", return_value="k"):
+            lib.return_value.pages = {}
+            kept, verified = simulado.verify(questions, [])
+        self.assertTrue(verified)
+        self.assertEqual([question["prompt"] for question in kept], ["Questão 1", "Questão 3"])
+        with patch("api.simulado.library") as lib, patch("api.simulado.make_session", side_effect=OSError), patch("api.main.agent_models", return_value=(MagicMock(provider="gemini", model="m"),)), patch("api.main.provider_key", return_value="k"):
+            lib.return_value.pages = {}
+            self.assertEqual(simulado.verify(questions, []), (questions, False))

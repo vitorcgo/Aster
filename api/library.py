@@ -185,7 +185,7 @@ class Scored:
     length: int
 
 
-def rank_candidates(query: str, document_id: str | None = None, limit: int = SEARCH_LIMIT, per_page_limit: int = 2) -> list[Scored]:
+def rank_candidates(query: str, document_id: str | None = None, limit: int = SEARCH_LIMIT, per_page_limit: int = 2, relaxed: bool = False) -> list[Scored]:
     wanted = terms(query)
     if not wanted:
         return []
@@ -200,7 +200,7 @@ def rank_candidates(query: str, document_id: str | None = None, limit: int = SEA
         if not content and not heading:
             continue
         coverage = len(content | heading) / len(wanted)
-        if coverage < MIN_COVERAGE and len(content | heading) < MIN_MATCHED_TERMS:
+        if coverage < MIN_COVERAGE and len(content | heading) < (2 if relaxed else MIN_MATCHED_TERMS):
             continue
         # termos em comum pesam mais em trechos curtos; o título do slide e a cobertura da pergunta somam
         score = 2.4 * len(content) / math.sqrt(max(4, len(item_terms))) + 1.2 * len(heading) / len(wanted) + coverage
@@ -230,6 +230,11 @@ def rank_candidates(query: str, document_id: str | None = None, limit: int = SEA
 
 def search(query: str, document_id: str | None = None, limit: int = SEARCH_LIMIT) -> list[Evidence]:
     return [row.item for row in rank_candidates(query, document_id, limit)]
+
+
+def search_relaxed(query: str, document_id: str | None = None, limit: int = SEARCH_LIMIT) -> list[Evidence]:
+    """Segunda tentativa de uma consulta longa que não achou nada: aceita trechos com pelo menos 2 termos dela."""
+    return [row.item for row in rank_candidates(query, document_id, limit, relaxed=True)]
 
 
 # Mantido para quem chama a busca simples (modo local e simulados).
