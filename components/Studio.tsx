@@ -27,17 +27,35 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
 
+const SESSION_KEY = "aster:studio";
+
+type SavedSession = { turns: Turn[]; tabs: DocTab[]; activeTab: string | null; activeTurnId: string | null };
+
+function readSession(): SavedSession | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as SavedSession;
+    // uma resposta que estava chegando quando a página recarregou não volta sozinha
+    saved.turns = saved.turns.map((turn) => (turn.status === "running" ? { ...turn, status: "failed", thinking: false, message: "A página recarregou antes de a resposta terminar. Pergunte de novo." } : turn));
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
 function gate(ref: { current: (() => void) | null }, timeout: number) {
   return Promise.race([new Promise<void>((resolve) => { ref.current = resolve; }), sleep(timeout)]).finally(() => { ref.current = null; });
 }
 
-export function Studio() {
+export function Studio({ active = true }: { active?: boolean }) {
+  const [restored] = useState(readSession);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [draft, setDraft] = useState("");
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
-  const [tabs, setTabs] = useState<DocTab[]>([]);
-  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const [turns, setTurns] = useState<Turn[]>(() => restored?.turns ?? []);
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(() => restored?.activeTurnId ?? null);
+  const [tabs, setTabs] = useState<DocTab[]>(() => restored?.tabs ?? []);
+  const [activeTab, setActiveTab] = useState<string | null>(() => restored?.activeTab ?? null);
   const [focus, setFocus] = useState<{ sourceId: string; turnId: string } | null>(null);
   const [scanning, setScanning] = useState(false);
   const [cursor, setCursor] = useState<CursorState>(null);
@@ -63,6 +81,14 @@ export function Studio() {
 
   useEffect(() => () => { window.clearInterval(replayPoll.current); controller.current?.abort(); }, []);
 
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ turns: turns.slice(-12), tabs, activeTab, activeTurnId } satisfies SavedSession));
+    } catch {
+      // sem armazenamento a sessão ainda sobrevive à navegação, só não a um recarregamento
+    }
+  }, [turns, tabs, activeTab, activeTurnId]);
+
   turnsRef.current = turns;
   tabsRef.current = tabs;
 
@@ -79,28 +105,33 @@ export function Studio() {
     return () => { alive = false; window.clearTimeout(timer); };
   }, []);
 
-  // Link vindo dos simulados: /?source=aula-6&page=23&q=...
+  // Link vindo dos simulados ou do laboratório: /?source=aula-6&page=23&q=...
   useEffect(() => {
+    if (!active) return;
     const parameters = new URLSearchParams(window.location.search);
     const documentId = parameters.get("source");
     const page = Number(parameters.get("page"));
     if (!documentId || !Number.isInteger(page) || page < 1) return;
+    // limpa o endereço para a revisão não se repetir na próxima visita
+    window.history.replaceState(null, "", "/");
     fetch(`/api/materials/${encodeURIComponent(documentId)}/pages/${page}?query=${encodeURIComponent(parameters.get("q") ?? "")}`)
       .then((response) => (response.ok ? response.json() : null))
       .then((payload: PagePayload | null) => {
         if (!payload) return;
         const id = pageTabId(payload.document_id, payload.page);
-        setTabs([{ id, kind: "page", page: payload }]);
-        setActiveTab(id);
+        openTab({ id, kind: "page", page: payload });
         const passage = payload.passages[0];
-        const pseudo = newTurn("review", parameters.get("q") ? `Revisão: ${parameters.get("q")}` : `Revisão de ${lectureLabel(payload.document_id, payload.page)}`);
+        const pseudo = newTurn(`review-${Date.now()}`, parameters.get("q") ? `Revisão: ${parameters.get("q")}` : `Revisão de ${lectureLabel(payload.document_id, payload.page)}`);
         if (passage) {
           setFocus({ sourceId: passage.id, turnId: pseudo.id });
-          setTurns([{ ...pseudo, status: "answered", thinking: false, mode: null, chat: true, blocks: [{ text: `Abri ${lectureLabel(payload.document_id, payload.page)} para você revisar. O trecho marcado é o que sustenta a questão do simulado. Pergunte o que quiser sobre ele.`, citation_ids: [passage.id] }], sources: [passage], seen: { [passage.id]: passage } }]);
+          const review: Turn = { ...pseudo, status: "answered", thinking: false, mode: null, chat: true, blocks: [{ text: `Abri ${lectureLabel(payload.document_id, payload.page)} para você revisar. O trecho marcado é o que sustenta a resposta. Pergunte o que quiser sobre ele.`, citation_ids: [passage.id] }], sources: [passage], seen: { [passage.id]: passage } };
+          turnsRef.current = [...turnsRef.current, review];
+          setTurns(turnsRef.current);
         }
       })
       .catch(() => {});
-  }, []);
+    // openTab é estável; o efeito roda a cada vez que o Estudar volta a ficar visível
+  }, [active]);
 
   const point = useCallback((target: string, label: string, gesture: CursorGesture = "point") => {
     cursorKey.current += 1;
@@ -290,7 +321,7 @@ export function Studio() {
     controller.current = abort;
     const turnId = `t${Date.now()}`;
     const context = turnsRef.current
-      .filter((turn) => turn.status === "answered" && turn.id !== "review")
+      .filter((turn) => turn.status === "answered" && !turn.id.startsWith("review"))
       .slice(-3)
       .map((turn) => ({ question: turn.question, answer: turn.blocks.map((block) => block.text).join(" ").slice(0, 1800) }));
     const fresh = newTurn(turnId, question);
@@ -457,7 +488,7 @@ export function Studio() {
 
   return (
     <div className={`studio ${session ? "is-session" : "is-landing"}`}>
-      <Landscape dim={session} />
+      <Landscape dim={session} paused={!active} />
       <TopBar current="/" mood={mood} onHome={reset} />
       <LayoutGroup>
         <AnimatePresence mode="popLayout" initial={false}>

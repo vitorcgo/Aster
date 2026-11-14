@@ -6,12 +6,12 @@ import { useEffect, useRef } from "react";
  * Fundo vivo: a paisagem fornecida pelo usuário, com glifos que derivam pelo céu
  * e vaga-lumes sobre os morros. Tudo em um canvas leve, pausado com movimento reduzido.
  */
-export function Landscape({ dim = false }: { dim?: boolean }) {
+export function Landscape({ dim = false, paused = false }: { dim?: boolean; paused?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const surface = canvas.current;
-    if (!surface) return;
+    if (!surface || paused) return;
     const context = surface.getContext("2d");
     if (!context) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -88,7 +88,7 @@ export function Landscape({ dim = false }: { dim?: boolean }) {
       observer.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [paused]);
 
   return (
     <div className={`landscape ${dim ? "is-dim" : ""}`} aria-hidden="true">
