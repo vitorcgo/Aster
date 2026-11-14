@@ -828,3 +828,22 @@ class ThinkingLevelTest(unittest.TestCase):
             session.step()
             session.step()
         self.assertEqual([config.get("thinking_level") for config in configs], ["minimal", "low", "low"])
+
+
+class FormatMixTest(unittest.TestCase):
+    """O simulado segue a mistura de formatos da Prova 1: maioria caso, depois afirmações, depois asserção e razão."""
+
+    def test_mix_follows_prova_1(self):
+        import random
+        from collections import Counter
+        from api.simulado import format_sequence
+        mix = Counter(format_sequence(10, random.Random(1)))
+        self.assertEqual(sum(mix.values()), 10)
+        self.assertGreater(mix["caso"], mix["afirmacoes"])
+        self.assertGreaterEqual(mix["afirmacoes"], mix["assercao"])
+        self.assertGreaterEqual(mix["assercao"], 1)
+        for count in (3, 5, 8):
+            with self.subTest(count=count):
+                mix = Counter(format_sequence(count, random.Random(count)))
+                self.assertEqual(sum(mix.values()), count)
+                self.assertEqual(set(mix), {"caso", "afirmacoes", "assercao"})

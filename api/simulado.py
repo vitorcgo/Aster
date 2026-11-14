@@ -38,7 +38,7 @@ _last_winner: str | None = None
 FORMATS = {
     "afirmacoes": {
         "label": "Afirmações (I–IV)",
-        "rule": "Apresente quatro afirmações numeradas I, II, III e IV sobre o tema, algumas verdadeiras e algumas falsas, e pergunte quais estão corretas. As alternativas são combinações, como “I, II e IV, apenas”.",
+        "rule": "Apresente quatro ou cinco afirmações numeradas (I a IV, ou I a V) sobre o tema, algumas verdadeiras e algumas falsas, e pergunte quais estão corretas. As alternativas são combinações, como “I, II e IV, apenas”.",
     },
     "caso": {
         "label": "Caso prático",
@@ -134,12 +134,33 @@ def lecture_order(scope: str, count: int, rng: random.Random) -> list[str]:
     return order
 
 
+# Mistura de formatos da Prova 1: 7 de 10 questões eram caso, 2 eram afirmações e 1 era asserção e razão.
+# (Na Prova 1 vários casos pediam cálculo; aqui o caso é só conceitual, como a disciplina pede.)
+FORMAT_MIX = {"caso": 0.6, "afirmacoes": 0.25, "assercao": 0.15}
+
+
+def format_sequence(count: int, rng: random.Random) -> list[str]:
+    """Formatos para `count` questões na proporção da Prova 1, com pelo menos um de cada a partir de 3 questões."""
+    quotas = {name: share * count for name, share in FORMAT_MIX.items()}
+    taken = {name: int(value) for name, value in quotas.items()}
+    # maiores restos ficam com as vagas que sobraram
+    for name in sorted(quotas, key=lambda key: quotas[key] - taken[key], reverse=True)[: count - sum(taken.values())]:
+        taken[name] += 1
+    if count >= 3:
+        for name in FORMAT_MIX:
+            if not taken[name]:
+                taken[name] = 1
+                taken["caso"] -= 1
+    sequence = [name for name, amount in taken.items() for _ in range(amount)]
+    rng.shuffle(sequence)
+    return sequence
+
+
 def plan(request: SimuladoRequest, rng: random.Random) -> list[dict]:
     order = lecture_order(request.scope, request.count, rng)
     if not order:
         return []
-    formats = list(FORMATS)
-    rng.shuffle(formats)
+    formats = format_sequence(request.count, rng)
     lib = library()
     subjects = {doc["id"]: doc["subject"] or doc["title"] for doc in lib.documents}
     items = []
@@ -148,7 +169,7 @@ def plan(request: SimuladoRequest, rng: random.Random) -> list[dict]:
         pages = pick_pages(document_id, rng)
         if not pages:
             continue
-        items.append({"n": len(items) + 1, "document_id": document_id, "subject": subjects.get(document_id, ""), "pages": pages, "format": formats[index % len(formats)]})
+        items.append({"n": len(items) + 1, "document_id": document_id, "subject": subjects.get(document_id, ""), "pages": pages, "format": formats[index]})
     return items
 
 
