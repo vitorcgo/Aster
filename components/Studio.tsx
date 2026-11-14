@@ -348,7 +348,12 @@ export function Studio({ active = true }: { active?: boolean }) {
         body: JSON.stringify({ question, context }),
         signal: abort.signal,
       });
-      if (!response.ok || !response.body) throw new Error(response.status === 422 ? "A pergunta precisa ter entre 3 e 500 caracteres." : "Não consegui falar com a API do Aster.");
+      if (!response.ok || !response.body) {
+        // a API responde erros como { detail: { code, message } }; mostra a mensagem dela quando houver
+        const body = await response.json().catch(() => null) as { detail?: { message?: string } | string } | null;
+        const detail = body?.detail;
+        throw new Error(typeof detail === "object" && detail?.message ? detail.message : typeof detail === "string" ? detail : "Não consegui falar com a API do Aster.");
+      }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";

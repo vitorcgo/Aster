@@ -64,7 +64,7 @@ export async function labGet<T>(path: string): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = (data as { detail?: unknown }).detail;
-    if (response.status === 404 && !detail) throw new Error("A API em execução não tem as rotas do Laboratório. Reinicie o servidor da API com o código atual.");
+    if (response.status === 404 && (!detail || (typeof detail === "object" && (detail as { code?: string }).code === "route_not_found"))) throw new Error("A API em execução não tem as rotas do Laboratório. Reinicie o servidor da API com o código atual.");
     throw new Error(typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : typeof detail === "string" ? detail : "A API não respondeu.");
   }
   return data as T;

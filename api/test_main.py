@@ -7,6 +7,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from google.genai import errors as genai_errors
 
+from api import security
 from api.main import (
     AnswerBlock,
     GeneratedAnswer,
@@ -38,6 +39,7 @@ class AgentTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.client = TestClient(app)
+        security.ask_limiter.reset()
         self.configured = [
             patch("api.main.gemini_api_key", return_value="configured"),
             patch("api.main.gemini_models", return_value=("primary", "backup")),
@@ -230,7 +232,23 @@ class AgentTest(unittest.TestCase):
         with patch("api.main.call_model", side_effect=[turn(("sem_base", {"motivo": "Assunto fora da disciplina."}))]):
             self.assertEqual(self.ask("Quem ganhou a copa de 1970?")[-1]["type"], "insufficient_evidence")
         response = self.client.post("/api/tutor/runs", json={"question": "   "})
-        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"]["code"], "invalid_request")
+        self.assertIn("3 caracteres", response.json()["detail"]["message"])
+
+    def test_personal_data_never_reaches_the_model(self):
+        prompts = []
+
+        def capture(spec, key, system, tools, prompt, thinking):
+            prompts.append(prompt)
+            return object()
+
+        with patch("api.main.make_session", side_effect=capture), patch("api.main.call_model", side_effect=[turn(("conversar", {"resposta": "Oi!"}))]):
+            events = self.ask("meu cpf é 123.456.789-09 e meu email aluno@senac.br, o que é RAG?")
+        self.assertEqual(events[0]["data"]["masked"], ["CPF", "e-mail"])
+        self.assertNotIn("123.456.789-09", prompts[0])
+        self.assertNotIn("aluno@senac.br", prompts[0])
+        self.assertIn("<pergunta_do_aluno>", prompts[0])
 
 
 class LibraryTest(unittest.TestCase):
@@ -306,3 +324,36 @@ class RelevanceTest(unittest.TestCase):
         self.assertEqual((search("Qual a fórmula do recall?")[0].document_id, search("Qual a fórmula do recall?")[0].page), ("aula-2", 32))
         self.assertTrue(search("O que é tokenização em PLN?"))
 
+
+class SecurityTest(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+        security.ask_limiter.reset()
+
+    def tearDown(self):
+        security.ask_limiter.reset()
+
+    def test_masks_only_real_personal_data(self):
+        text, found = security.mask_personal_data("cartão 4111 1111 1111 1111, fone (11) 98765-4321, Turing em 1950 e 2023, página 26")
+        self.assertEqual(found, ["cartão", "telefone"])
+        self.assertIn("[cartão oculto]", text)
+        self.assertIn("1950 e 2023", text)
+        self.assertEqual(security.mask_personal_data("Recall@3 de 0,654 na aula 2")[1], [])
+
+    def test_question_rate_limit(self):
+        with patch.object(security.ask_limiter, "per_minute", 2), patch("api.main.material_paths", return_value={}):
+            codes = [self.client.post("/api/tutor/runs", json={"question": "o que é RAG?"}).status_code for _ in range(3)]
+            limited = self.client.post("/api/tutor/runs", json={"question": "o que é RAG?"})
+        self.assertEqual(codes, [200, 200, 429])
+        self.assertEqual(limited.json()["detail"]["code"], "too_many_questions")
+        self.assertIn("Retry-After", limited.headers)
+
+    def test_errors_have_one_readable_format(self):
+        missing = self.client.get("/api/nao-existe")
+        self.assertEqual((missing.status_code, missing.json()["detail"]["code"]), (404, "route_not_found"))
+        wrong = self.client.get("/api/tutor/runs")
+        self.assertEqual((wrong.status_code, wrong.json()["detail"]["code"]), (405, "method_not_allowed"))
+        big = self.client.post("/api/tutor/runs", content=b"x" * (70 * 1024), headers={"Content-Type": "application/json"})
+        self.assertEqual((big.status_code, big.json()["detail"]["code"]), (413, "payload_too_large"))
+        broken = self.client.post("/api/tutor/runs", content=b"{", headers={"Content-Type": "application/json"})
+        self.assertEqual(broken.status_code, 400)

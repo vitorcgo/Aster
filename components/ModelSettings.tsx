@@ -19,7 +19,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = (data as { detail?: unknown }).detail;
-    if (response.status === 404 && (!detail || detail === "Not Found")) throw new Error("A API em execução é de uma versão antiga e não tem o painel de modelos. Reinicie o servidor da API.");
+    if (response.status === 404 && (!detail || detail === "Not Found" || (typeof detail === "object" && (detail as { code?: string }).code === "route_not_found"))) throw new Error("A API em execução é de uma versão antiga e não tem o painel de modelos. Reinicie o servidor da API.");
     const message = typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : typeof detail === "string" ? detail : "A API não respondeu.";
     throw new Error(message);
   }

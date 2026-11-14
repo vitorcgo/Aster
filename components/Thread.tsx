@@ -51,6 +51,10 @@ function groupCitations(ids: string[], turn: Turn) {
   return groups;
 }
 
+
+function listPt(items: string[]) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} e ${items[items.length - 1]}`;
+}
 export function SourceChip({ source, onOpen, index }: { source: Source; onOpen: (source: Source) => void; index?: number | string }) {
   return (
     <span className="chip-wrap">
@@ -147,6 +151,7 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
             <div className="answer-badges">
               {turn.mode === "local" && <span className="badge badge-warn">Modo local: trechos copiados, sem IA</span>}
               {turn.usedFallback && <span className="badge">Modelo reserva</span>}
+              {!!turn.masked?.length && <span className="badge" title="Esses dados foram trocados por marcadores antes de a pergunta sair deste computador">{`Ocultei ${listPt(turn.masked)} antes de enviar`}</span>}
               {webCount > 0 && lectureCount === 0 && <span className="badge badge-web">Fora do material das aulas</span>}
               {webCount > 0 && lectureCount > 0 && <span className="badge badge-web">Aulas e web</span>}
             </div>

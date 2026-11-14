@@ -80,6 +80,8 @@ export type Turn = {
   blocks: AnswerBlock[];
   sources: Source[];
   usedFallback: boolean;
+  /** dados pessoais que a API ocultou antes de enviar à IA (CPF, cartão...) */
+  masked?: string[];
   chat: boolean;
   message: string;
   elapsed: number;
@@ -118,7 +120,7 @@ export function applyEvent(turn: Turn, event: RunEvent): Turn {
   const next: Turn = { ...turn, elapsed: event.t ?? turn.elapsed };
   switch (event.type) {
     case "run_started":
-      return { ...next, model: data.model ?? null, mode: data.mode ?? null };
+      return { ...next, model: data.model ?? null, mode: data.mode ?? null, masked: Array.isArray(data.masked) ? data.masked.map(String) : [] };
     case "agent_thinking":
       return { ...next, thinking: true, step: data.step ?? turn.step + 1, model: data.model ?? turn.model };
     case "agent_thought":

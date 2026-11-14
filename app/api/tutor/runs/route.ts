@@ -11,13 +11,14 @@ export async function POST(request: Request) {
   try {
     upstream = await fetch(`${apiOrigin}/api/tutor/runs`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // repassa o IP de quem perguntou, para o limite de perguntas valer por aluno
+      headers: { "Content-Type": "application/json", "X-Forwarded-For": request.headers.get("x-forwarded-for") ?? "127.0.0.1" },
       body: await request.text(),
       signal: request.signal,
       cache: "no-store",
     });
   } catch {
-    return Response.json({ detail: "A API do Aster não está rodando." }, { status: 502 });
+    return Response.json({ detail: { code: "api_offline", message: "A API do Aster não está rodando. Abra o iniciar.bat ou rode o uvicorn (veja o README)." } }, { status: 502 });
   }
   if (!upstream.ok || !upstream.body) {
     return new Response(await upstream.text(), { status: upstream.status, headers: { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" } });
