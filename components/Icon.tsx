@@ -21,6 +21,10 @@ const paths: Record<string, React.ReactNode> = {
   book: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z" /><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5" /></>,
   flag: <><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></>,
   close: <path d="M6 6l12 12M18 6 6 18" />,
+  settings: <><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></>,
+  network: <><circle cx="5" cy="6" r="2" /><circle cx="5" cy="18" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="7" r="2" /><circle cx="19" cy="17" r="2" /><path d="M7 6.6 10 11M7 17.4 10 13M14 11.4l3-3.4M14 12.6l3 3.4" /></>,
+  play: <path d="M8 5v14l11-7z" />,
+  pause: <path d="M8 5v14M16 5v14" />,
 };
 
 export type IconName = keyof typeof paths;

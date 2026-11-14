@@ -73,7 +73,7 @@ export type Turn = {
   thinking: boolean;
   step: number;
   model: string | null;
-  mode: "gemini" | "local" | null;
+  mode: "ai" | "local" | null;
   thoughts: string[];
   nodes: TraceNode[];
   seen: Record<string, Source>;

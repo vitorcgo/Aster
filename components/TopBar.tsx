@@ -2,30 +2,48 @@
 
 import Link from "next/link";
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Icon } from "./Icon";
 import { Mascot, type MascotMood } from "./Mascot";
+import { ModelSettings, SETTINGS_EVENT } from "./ModelSettings";
+import { faviconUrl } from "@/lib/aster";
 
-type Health = { mode: "gemini" | "local"; materials: number; passages: number; model: string | null } | null | "offline";
+type Health = { mode: "ai" | "local"; materials: number; passages: number; model: string | null; provider: string | null } | null | "offline";
+
+const PROVIDER_SITE: Record<string, string> = { gemini: "gemini.google.com", openai: "openai.com", nvidia: "nvidia.com" };
 
 const routes = [
   { href: "/", label: "Estudar" },
+  { href: "/laboratorio", label: "Laboratório" },
   { href: "/simulados", label: "Simulados" },
 ];
 
 function prettyModel(model: string) {
+  if (!model.startsWith("gemini-")) return model.split("/").pop() ?? model;
   return model.replace(/^gemini-/, "Gemini ").replace(/-/g, " ").replace(/\b([a-z])/g, (letter) => letter.toUpperCase());
 }
 
-export function TopBar({ current, mood = "idle", onHome }: { current: "/" | "/simulados"; mood?: MascotMood; onHome?: () => void }) {
+export function TopBar({ current, mood = "idle", onHome }: { current: "/" | "/simulados" | "/laboratorio"; mood?: MascotMood; onHome?: () => void }) {
   const [health, setHealth] = useState<Health>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const load = useCallback((attempt = 0) => {
+    fetch("/api/health")
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then(setHealth)
+      .catch(() => {
+        setHealth("offline");
+        if (attempt < 10) window.setTimeout(() => load(attempt + 1), 3000);
+      });
+  }, []);
 
   useEffect(() => {
-    let alive = true;
-    const load = () => fetch("/api/health").then((response) => (response.ok ? response.json() : Promise.reject())).then((data) => alive && setHealth(data)).catch(() => alive && setHealth("offline"));
     load();
-    const timer = window.setInterval(load, 30000);
-    return () => { alive = false; window.clearInterval(timer); };
-  }, []);
+    const timer = window.setInterval(() => load(), 30000);
+    const onChange = () => load();
+    window.addEventListener(SETTINGS_EVENT, onChange);
+    return () => { window.clearInterval(timer); window.removeEventListener(SETTINGS_EVENT, onChange); };
+  }, [load]);
 
   return (
     <header className="topbar">
@@ -47,13 +65,14 @@ export function TopBar({ current, mood = "idle", onHome }: { current: "/" | "/si
       <div className="status">
         {health === null && <span className="status-chip">Conectando</span>}
         {health === "offline" && <span className="status-chip is-bad">API desligada</span>}
-        {health && health !== "offline" && (
-          <>
-            <span className="status-chip">{health.materials} aulas</span>
-            <span className={`status-chip ${health.mode === "local" ? "is-warn" : "is-ai"}`}>{health.mode === "gemini" ? (health.model ? prettyModel(health.model) : "Gemini") : "Modo local, sem IA"}</span>
-          </>
-        )}
+        {health && health !== "offline" && <span className="status-chip status-count">{health.materials} aulas</span>}
+        <button type="button" className={`status-chip status-model ${health && health !== "offline" ? (health.mode === "local" ? "is-warn" : "is-ai") : ""}`} onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">
+          {health && health !== "offline" && health.provider && <img src={faviconUrl(PROVIDER_SITE[health.provider])} alt="" width="15" height="15" />}
+          <span>{health && health !== "offline" ? (health.mode === "local" ? "Sem IA, configurar" : prettyModel(health.model ?? "")) : "Modelos"}</span>
+          <Icon name="settings" size={15} />
+        </button>
       </div>
+      <ModelSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </header>
   );
 }
