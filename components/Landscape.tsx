@@ -14,7 +14,9 @@ export function Landscape({ dim = false, paused = false }: { dim?: boolean; paus
     if (!surface || paused) return;
     const context = surface.getContext("2d");
     if (!context) return;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // com a sessão aberta os painéis cobrem quase todo o céu: um quadro parado basta, e o vidro desfocado
+    // não precisa ser recalculado a cada quadro
+    const reduced = dim || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const styles = getComputedStyle(document.documentElement);
     const skyInk = styles.getPropertyValue("--glyph-sky").trim() || "#cfe6ff";
     const fireflyInk = styles.getPropertyValue("--lime").trim() || "#d5ff6e";
@@ -88,7 +90,7 @@ export function Landscape({ dim = false, paused = false }: { dim?: boolean; paus
       observer.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [paused]);
+  }, [paused, dim]);
 
   return (
     <div className={`landscape ${dim ? "is-dim" : ""}`} aria-hidden="true">

@@ -61,8 +61,11 @@ export function AsterCursor({ state }: { state: CursorState }) {
     let drawStart = 0;
     let drawEnded = false;
     setDrawing(false);
+    // medir o alvo força layout; a cada 4 quadros basta para seguir o que se move na tela
+    let rects: DOMRect[] = [];
+    let frameCount = 0;
     const tick = (now: number) => {
-      const rects = rectOf(state.target);
+      if (frameCount++ % 4 === 0 || !rects.length) rects = rectOf(state.target);
       if (rects.length) {
         const first = rects[0];
         const elapsed = now - started.current;
@@ -154,6 +157,7 @@ export function AsterCursor({ state }: { state: CursorState }) {
     let serial = 0;
     let last = performance.now();
     let frame = 0;
+    let dirty = false;
     const draw = (now: number) => {
       const delta = Math.min(64, now - last);
       last = now;
@@ -163,6 +167,9 @@ export function AsterCursor({ state }: { state: CursorState }) {
         marks.push({ x: currentX - 2, y: currentY + 4, life: 1, glyph: glyphs[serial++ % glyphs.length] });
         lastX = currentX; lastY = currentY;
       }
+      // sem marcas na tela não há o que limpar nem desenhar
+      if (!marks.length && !dirty) { frame = requestAnimationFrame(draw); return; }
+      dirty = marks.length > 0;
       context.clearRect(0, 0, window.innerWidth, window.innerHeight);
       context.font = "600 15px 'IBM Plex Mono', monospace";
       context.fillStyle = ink;

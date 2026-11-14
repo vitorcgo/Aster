@@ -82,11 +82,17 @@ export function Studio({ active = true }: { active?: boolean }) {
   useEffect(() => () => { window.clearInterval(replayPoll.current); controller.current?.abort(); }, []);
 
   useEffect(() => {
-    try {
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ turns: turns.slice(-12), tabs, activeTab, activeTurnId } satisfies SavedSession));
-    } catch {
-      // sem armazenamento a sessão ainda sobrevive à navegação, só não a um recarregamento
-    }
+    // grava com um pequeno atraso: durante a pesquisa chegam vários eventos por segundo
+    const save = () => {
+      try {
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify({ turns: turns.slice(-12), tabs, activeTab, activeTurnId } satisfies SavedSession));
+      } catch {
+        // sem armazenamento a sessão ainda sobrevive à navegação, só não a um recarregamento
+      }
+    };
+    const timer = window.setTimeout(save, 500);
+    window.addEventListener("pagehide", save);
+    return () => { window.clearTimeout(timer); window.removeEventListener("pagehide", save); };
   }, [turns, tabs, activeTab, activeTurnId]);
 
   turnsRef.current = turns;
