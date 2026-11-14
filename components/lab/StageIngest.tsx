@@ -25,7 +25,8 @@ export function StageIngest({ search }: { search: SearchResult | null }) {
   useEffect(() => { labGet<Overview>("/api/lab/overview").then(setOverview).catch((problem: Error) => setError(problem.message)); }, []);
   useEffect(() => {
     const first = search?.candidates[0];
-    if (first) setTarget({ doc: first.document_id, page: first.page });
+    // sem candidatos, mostramos uma página qualquer só para ilustrar a extração
+    setTarget(first ? { doc: first.document_id, page: first.page } : { doc: "aula-6", page: 34 });
   }, [search]);
   useEffect(() => {
     if (!target) return;
@@ -70,6 +71,7 @@ export function StageIngest({ search }: { search: SearchResult | null }) {
         </figure>
       )}
 
+      {search && search.candidates.length === 0 && <p className="lab-insight">A pergunta em análise não casa com nenhum trecho das aulas. Abaixo, um exemplo de página para ver como a extração funciona.</p>}
       {detail && (
         <div className="ingest-page">
           <div className="lab-card">

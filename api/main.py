@@ -42,6 +42,7 @@ PRIVATE_MATERIALS = ROOT / "data" / "materials"
 load_dotenv(ROOT / ".env", override=False)
 
 MAX_AGENT_STEPS = 8
+MAX_WEB_SEARCHES = 2
 SEARCH_LIMIT = 6
 
 
@@ -200,7 +201,16 @@ def clean_pdf_text(value: str) -> str:
     return " ".join(value.translate(GLYPH_FIXES).split()).strip(" •")
 
 
-STOPWORDS = {"qual", "quais", "como", "para", "uma", "uns", "umas", "que", "dos", "das", "com", "sobre", "papel", "aula", "aulas", "isso", "esse", "essa", "este", "esta", "por", "pela", "pelo", "nos", "nas", "the", "and", "sao", "ser", "tem", "mais", "entre", "quando", "onde", "porque", "explique", "explica", "diferenca", "funciona", "serve"}
+STOPWORDS = {"qual", "quais", "como", "para", "uma", "uns", "umas", "que", "dos", "das", "com", "sobre", "papel", "aula", "aulas", "isso", "esse", "essa", "este", "esta", "por", "pela", "pelo", "nos", "nas", "the", "and", "sao", "ser", "tem", "mais", "entre", "quando", "onde", "porque", "explique", "explica", "diferenca", "funciona", "serve",
+             # verbos e pronomes genéricos: casavam com qualquer slide e viravam ruído
+             "faz", "fazer", "feito", "faco", "fazem", "quem", "pode", "podem", "posso", "existe", "existem", "tipo", "coisa",
+             "algum", "alguma", "muito", "bem", "ter", "ver", "dizer", "diz", "usar", "usa", "dar", "ficar", "fica"}
+
+# Um trecho só é candidato se cobrir metade dos termos da pergunta (ou 3 termos, em perguntas longas).
+# Medido nas 26 perguntas de avaliação: recall@1 subiu de 58% para 65%, e perguntas fora da matéria
+# deixam de "encontrar" slides por uma palavra solta.
+MIN_COVERAGE = 0.5
+MIN_MATCHED_TERMS = 3
 
 
 def stem(word: str) -> str:
@@ -317,6 +327,8 @@ def rank_candidates(query: str, document_id: str | None = None, limit: int = SEA
         if not content and not heading:
             continue
         coverage = len(content | heading) / len(wanted)
+        if coverage < MIN_COVERAGE and len(content | heading) < MIN_MATCHED_TERMS:
+            continue
         # termos em comum pesam mais em trechos curtos; o título do slide e a cobertura da pergunta somam
         score = 2.4 * len(content) / math.sqrt(max(4, len(item_terms))) + 1.2 * len(heading) / len(wanted) + coverage
         if re.match(r"^\d+\s", item.quote):
@@ -469,14 +481,16 @@ def web_search(query: str) -> tuple[str, list[dict]]:
 SYSTEM_INSTRUCTION = """Você é o Aster, um agente de estudos simpático da disciplina de Inteligência Artificial do professor Daniel Cavalcante (SENAC). Seu mascote é uma florzinha verde. Você ajuda alunos a entender a matéria, pesquisando nas aulas e na internet, e mostra de onde tirou cada informação.
 
 Como agir, conforme a mensagem:
-- Conversa (cumprimento, agradecimento, "quem é você?", "o que você faz?", pedido de dica de estudo): chame conversar e responda de forma breve e calorosa, sem pesquisar.
+- Conversa (cumprimento, agradecimento, "quem é você?", "o que você faz?", pedido de dica de estudo): chame conversar e responda de forma breve e calorosa, sem pesquisar. Use conversar só nesses casos: qualquer pergunta com conteúdo ("o que é", "como faz", "quem foi", "por que") precisa de pesquisa e de fonte, mesmo que você já saiba a resposta.
 - Dúvida sobre a matéria: comece pelas aulas. Use buscar_nas_aulas com termos técnicos que provavelmente aparecem nos slides; se vier pouco, reformule com sinônimos ou siglas, ou restrinja a uma aula. Abra a página mais promissora com ler_pagina antes de citar. Depois, se ajudar, complemente com pesquisar_na_web (um exemplo atual, uma explicação mais clara, um contexto que o slide não traz).
-- Assunto que não está nas aulas (outro tema de tecnologia, curiosidade, notícia, algo da faculdade): pesquise rapidamente nas aulas para conferir e, se não houver nada, use pesquisar_na_web e responda com base nas fontes da web, deixando claro no texto que isso vai além do material da disciplina.
-- sem_base: só quando nem as aulas nem a web sustentarem uma resposta, ou o pedido for inadequado.
+- Assunto que não está nas aulas (curiosidade, cultura, notícia, outro tema de tecnologia, algo da faculdade): pesquise rapidamente nas aulas para conferir e, se não houver nada relacionado, use pesquisar_na_web e responda com base nas fontes da web, deixando claro no texto que isso vai além do material da disciplina. Nunca recuse só porque o assunto não está nas aulas: o aluno pode perguntar sobre qualquer coisa.
+- Se a busca nas aulas trouxer trechos que não têm relação com a pergunta (por exemplo, só uma palavra em comum), ignore esses trechos: não os leia nem os cite.
+- Se as fontes encontradas respondem só em parte, responda com o que elas dizem e diga com franqueza o que ficou de fora. É melhor uma resposta parcial com fonte do que nenhuma resposta.
+- sem_base: só quando o pedido for inadequado (ofensivo ou perigoso) ou quando nem as aulas nem a web trouxerem nada relacionado.
 
 Ao chamar responder: escreva em português claro, como um bom monitor explicaria a um colega, em 1 a 3 blocos curtos. Cada bloco cita os ids que o sustentam (trechos das aulas ou web-N), somente ids que você recebeu das ferramentas nesta conversa. Quando misturar fontes, deixe explícito o que vem de fora das aulas (por exemplo, "Fora das aulas, ..."). Não invente fatos.
 
-Seja eficiente: normalmente 1 a 2 buscas nas aulas, 1 leitura de página e 1 pesquisa na web bastam. Pense em português.
+Seja eficiente: normalmente 1 a 2 buscas nas aulas, 1 leitura de página e 1 pesquisa na web bastam. Você tem no máximo 2 pesquisas na web por pergunta. Pense em português.
 
 Aulas disponíveis:
 {catalog}"""
@@ -547,7 +561,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "name": "conversar",
-        "description": "Responde diretamente, sem pesquisa, a cumprimentos, perguntas sobre o próprio Aster e conversas rápidas.",
+        "description": "Responde sem pesquisa apenas a cumprimentos, agradecimentos e perguntas sobre o próprio Aster. Perguntas com conteúdo devem ser pesquisadas.",
         "parameters": {"type": "object", "properties": {"texto": {"type": "string", "description": "Resposta curta e simpática, em português."}}, "required": ["texto"]},
     },
     {
@@ -633,6 +647,8 @@ class Agent:
         self.seen: dict[str, Evidence | WebSource] = {}
         self.pages_read: set[tuple[str, int]] = set()
         self.web_count = 0
+        self.web_searches = 0
+        self.reconsidered = False
 
     def run_tool(self, call: ToolCall) -> tuple[dict, list[tuple[str, dict]]]:
         """Devolve (resultado para o modelo, eventos para a interface)."""
@@ -665,6 +681,11 @@ class Agent:
             payload = {"aula": document_id, "pagina": page, "titulo_slide": text.heading, "texto_completo": text.text[:3500], "trechos_citaveis": [{"id": item.id, "texto": item.quote} for item in passages]}
             return payload, [("page_read", {"call_id": call.id, **page_payload(document_id, page)})]
         if call.name == "pesquisar_na_web":
+            # o limite fica no servidor: o modelo às vezes insiste em pesquisar de novo
+            if self.web_searches >= MAX_WEB_SEARCHES:
+                message = f"Limite de {MAX_WEB_SEARCHES} pesquisas na web por pergunta. Responda com as fontes que já tem ou use sem_base."
+                return {"erro": message}, [("tool_error", {"call_id": call.id, "message": "Limite de pesquisas na web atingido"})]
+            self.web_searches += 1
             query = str(args.get("consulta", "")).strip()[:200]
             provider, results = web_search(query)
             sources: list[WebSource] = []
@@ -746,8 +767,15 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
                     results.append((call, {"erro": "Texto vazio."}))
                     continue
                 if call.name == "sem_base":
+                    found = [source for source in agent.seen.values() if isinstance(source, WebSource)]
+                    if found and not agent.reconsidered:
+                        # antes de desistir, o agente revê o que já encontrou: uma resposta parcial com fonte vale mais
+                        agent.reconsidered = True
+                        yield emit("answer_check", {"call_id": call.id, "ok": False, "message": "Antes de desistir, rever as fontes já encontradas"})
+                        results.append((call, {"erro": "Você já encontrou estas fontes: " + "; ".join(f"{source.id}: {source.title}" for source in found[:6]) + ". Se alguma tiver relação com a pergunta, responda com o que ela diz e cite o id, deixando claro o que ficou de fora. Use sem_base só se nenhuma tiver relação."}))
+                        continue
                     reason = str(call.arguments.get("motivo", "")).strip()[:300]
-                    yield emit("insufficient_evidence", {"message": "Não encontrei base para responder nas aulas disponíveis.", "reason": reason})
+                    yield emit("insufficient_evidence", {"message": "Não encontrei fontes que sustentem uma resposta.", "reason": reason})
                     return
                 payload, events = await asyncio.to_thread(agent.run_tool, call)
                 for kind, data in events:

@@ -152,7 +152,14 @@ export function applyEvent(turn: Turn, event: RunEvent): Turn {
       return { ...next, seen, nodes: patchNode(turn.nodes, data.call_id, (node) => (node.kind === "web" ? { ...node, results, provider: data.provider ?? null } : node)) };
     }
     case "tool_error":
-      return { ...next, nodes: patchNode(turn.nodes, data.call_id, (node) => (node.kind === "read" ? { ...node, intent: `${node.intent} (página inexistente)` } : node)) };
+      return {
+        ...next,
+        nodes: patchNode(turn.nodes, data.call_id, (node) => {
+          if (node.kind === "read") return { ...node, intent: `${node.intent} (página inexistente)` };
+          if (node.kind === "web") return { ...node, results: [], intent: `${node.intent} (${String(data.message ?? "não executada").toLowerCase()})` };
+          return node;
+        }),
+      };
     case "answer_check":
       return { ...next, nodes: patchNode(turn.nodes, data.call_id, (node) => (node.kind === "check" ? { ...node, ok: !!data.ok, message: String(data.message ?? "") } : node)) };
     case "model_fallback":
@@ -176,7 +183,8 @@ export function applyEvent(turn: Turn, event: RunEvent): Turn {
       };
     }
     case "insufficient_evidence":
-      return { ...next, status: "empty", thinking: false, message: String(data.message ?? ""), nodes: [...turn.nodes, { kind: "stop", id: `${turn.id}-stop`, tone: "empty", message: String(data.reason || data.message || "") }] };
+      // o motivo dado pelo agente diz o que realmente faltou (aulas, web ou os dois)
+      return { ...next, status: "empty", thinking: false, message: String(data.reason || data.message || ""), nodes: [...turn.nodes, { kind: "stop", id: `${turn.id}-stop`, tone: "empty", message: String(data.reason || data.message || "") }] };
     case "run_failed":
       return { ...next, status: "failed", thinking: false, message: String(data.message ?? ""), nodes: [...turn.nodes, { kind: "stop", id: `${turn.id}-stop`, tone: "error", message: String(data.message ?? "") }] };
     default:

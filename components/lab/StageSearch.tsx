@@ -23,13 +23,16 @@ export function StageSearch({ search, question }: { search: SearchResult | null;
       <div className="search-summary">
         <div className="flow-step"><strong>{search.terms.length}</strong><span>termos na pergunta</span></div>
         <div className="flow-step"><strong>{search.matched.toLocaleString("pt-BR")}</strong><span>de {search.total.toLocaleString("pt-BR")} trechos têm algum termo</span></div>
-        <div className="flow-step"><strong>{search.candidates.length}</strong><span>melhores viram candidatos</span></div>
+        <div className="flow-step"><strong>{search.candidates.length}</strong><span>passam no filtro e viram candidatos</span></div>
       </div>
       <div className="formula-card">
         <span>Pontuação de cada trecho</span>
         <code>2,4 × termos no trecho ÷ √tamanho + 1,2 × termos no título ÷ termos da pergunta + cobertura</code>
-        <p className="lab-note">Trechos curtos que concentram os termos sobem, um pouco como o TF-IDF da Aula 4, p. 14. Cada página entra no máximo duas vezes.</p>
+        <p className="lab-note">Trechos curtos que concentram os termos sobem, um pouco como o TF-IDF da Aula 4, p. 14. Só entram trechos que cobrem pelo menos metade dos termos da pergunta, e cada página entra no máximo duas vezes.</p>
       </div>
+      {search.candidates.length === 0 && (
+        <p className="lab-insight">Nenhum trecho cobre pelo menos metade dos termos da pergunta, então a busca não devolve nada. O agente fica sabendo que o assunto não está nas aulas e vai para a web.</p>
+      )}
       <ol className="candidate-list" key={question}>
         {search.candidates.map((item, index) => (
           <motion.li key={item.id} className="candidate" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.06 }}>

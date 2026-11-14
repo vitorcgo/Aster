@@ -183,6 +183,33 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(events[-1]["data"]["kind"], "chat")
         self.assertEqual(events[-1]["data"]["sources"], [])
 
+    def test_server_caps_web_searches(self):
+        script = [
+            turn(("pesquisar_na_web", {"consulta": "a"})),
+            turn(("pesquisar_na_web", {"consulta": "b"})),
+            turn(("pesquisar_na_web", {"consulta": "c"})),
+            turn(("responder", {"blocos": [{"texto": "Fora das aulas, RAG é uma técnica.", "citacoes": ["web-1"]}]})),
+        ]
+        with patch("api.main.call_model", side_effect=script):
+            events = self.ask("o que é RAG?")
+        self.assertEqual(sum(1 for event in events if event["type"] == "web_results"), 2)
+        self.assertEqual([event["data"]["message"] for event in events if event["type"] == "tool_error"], ["Limite de pesquisas na web atingido"])
+        self.assertEqual(events[-1]["type"], "answer_ready")
+
+    def test_giving_up_with_web_sources_is_reconsidered_once(self):
+        script = [
+            turn(("pesquisar_na_web", {"consulta": "rag"})),
+            turn(("sem_base", {"motivo": "nada"})),
+            turn(("responder", {"blocos": [{"texto": "Fora das aulas, RAG é uma técnica.", "citacoes": ["web-1"]}]})),
+        ]
+        with patch("api.main.call_model", side_effect=script):
+            events = self.ask("o que é RAG?")
+        self.assertEqual(events[-1]["type"], "answer_ready")
+        stubborn = [turn(("pesquisar_na_web", {"consulta": "rag"})), turn(("sem_base", {"motivo": "nada"})), turn(("sem_base", {"motivo": "nada mesmo"}))]
+        with patch("api.main.call_model", side_effect=stubborn):
+            events = self.ask("o que é RAG?")
+        self.assertEqual((events[-1]["type"], events[-1]["data"]["reason"]), ("insufficient_evidence", "nada mesmo"))
+
     def test_no_coverage_and_blank_question(self):
         with patch("api.main.call_model", side_effect=[turn(("sem_base", {"motivo": "Assunto fora da disciplina."}))]):
             self.assertEqual(self.ask("Quem ganhou a copa de 1970?")[-1]["type"], "insufficient_evidence")
@@ -251,3 +278,15 @@ class LocalOnlyTest(unittest.TestCase):
             self.assertEqual(response.status_code, 403)
             self.assertEqual(response.json()["detail"]["code"], "local_only")
             self.assertEqual(client.put("/api/settings/chain", json={"chain": []}).status_code, 200)
+
+
+@unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+class RelevanceTest(unittest.TestCase):
+    def test_off_topic_questions_do_not_find_noise(self):
+        self.assertEqual(search("quem ganhou a copa de 2022"), [])
+        self.assertTrue(all("siri" in passage.quote.lower() for passage in search("como faz um hamburguer de siri")))
+
+    def test_filter_keeps_the_right_pages(self):
+        self.assertEqual((search("Qual a fórmula do recall?")[0].document_id, search("Qual a fórmula do recall?")[0].page), ("aula-2", 32))
+        self.assertTrue(search("O que é tokenização em PLN?"))
+
