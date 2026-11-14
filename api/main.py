@@ -457,7 +457,8 @@ def google_web_search(query: str) -> list[dict]:
     from google import genai
 
     client = genai.Client(api_key=provider_key("gemini"), http_options={"retry_options": {"attempts": 1}, "timeout": 25000})
-    gemini_specs = [spec.model for spec in agent_models() if spec.provider == "gemini"]
+    # a pesquisa só resume fontes: usa o modelo leve, para não gastar a cota do modelo principal do agente
+    model = last_resort_model() or ([spec.model for spec in agent_models() if spec.provider == "gemini"] or list(gemini_models()))[0]
     interaction = client.interactions.create(
         model=gemini_specs[0] if gemini_specs else gemini_models()[0],
         input=f"Pesquise na web e resuma em até 4 frases, em português, informações confiáveis sobre: {query}",
@@ -484,21 +485,31 @@ def google_web_search(query: str) -> list[dict]:
     return list(found.values())[:4]
 
 
-def wikipedia_search(query: str, language: str = "pt") -> list[dict]:
-    from urllib.parse import quote
+WEB_FILLER = {"o", "a", "os", "as", "e", "é", "de", "da", "do", "das", "dos", "em", "no", "na", "um", "uma", "ao", "à", "que", "como", "qual", "quais", "funciona", "explique", "explica", "sobre", "para", "por", "mais", "seria", "significa"}
 
-    data = _http_json(f"https://{language}.wikipedia.org/w/api.php?action=query&list=search&format=json&utf8=1&srlimit=3&srsearch={quote(query)}")
+
+def web_query(query: str) -> str:
+    """A Wikipédia acha melhor por palavras-chave: sem aspas (as tipográficas zeravam o resultado) e sem palavras vazias."""
+    words = re.sub(r"[\"“”„«»'‘’`()\[\]{}?!.,;:]", " ", query).split()
+    kept = [word for word in words if word.lower() not in WEB_FILLER]
+    return " ".join(kept or words)[:200]
+
+
+def wikipedia_search(query: str, language: str = "pt") -> list[dict]:
+    """Uma requisição só: busca e resumo de cada página juntos (antes eram 4 em sequência, e a Wikipédia devolvia 429)."""
+    from urllib.parse import urlencode
+
+    params = urlencode({
+        "action": "query", "format": "json", "utf8": 1, "generator": "search", "gsrsearch": web_query(query), "gsrlimit": 3,
+        "prop": "extracts|info", "exintro": 1, "explaintext": 1, "exsentences": 4, "inprop": "url",
+    })
+    data = _http_json(f"https://{language}.wikipedia.org/w/api.php?{params}")
+    pages = sorted((data.get("query", {}).get("pages") or {}).values(), key=lambda page: page.get("index", 99))
     results = []
-    for item in data.get("query", {}).get("search", [])[:3]:
-        title = item.get("title", "")
-        try:
-            summary = _http_json(f"https://{language}.wikipedia.org/api/rest_v1/page/summary/{quote(title.replace(' ', '_'))}")
-        except Exception:
-            continue
-        extract = " ".join(str(summary.get("extract", "")).split())
-        url = summary.get("content_urls", {}).get("desktop", {}).get("page") or f"https://{language}.wikipedia.org/wiki/{quote(title.replace(' ', '_'))}"
+    for page in pages:
+        extract = " ".join(str(page.get("extract", "")).split())
         if extract:
-            results.append({"title": f"{title} — Wikipédia", "url": url, "domain": f"{language}.wikipedia.org", "snippet": extract[:600]})
+            results.append({"title": f"{page.get('title', '')} — Wikipédia", "url": page.get("fullurl") or f"https://{language}.wikipedia.org/?curid={page.get('pageid')}", "domain": f"{language}.wikipedia.org", "snippet": extract[:600]})
     return results
 
 
