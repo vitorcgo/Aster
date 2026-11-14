@@ -41,11 +41,18 @@ export default function PdfViewer({ page, highlights, scanning, onRendered, onEv
   const stage = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
   const highlightKey = highlights.map((item) => item.id).join("|");
+  // o pai recria a lista e as funções a cada evento; guardamos em refs para não refazer a busca no texto
+  const highlightsRef = useRef(highlights);
+  const callbacks = useRef({ onRendered, onEvidence });
+  highlightsRef.current = highlights;
+  callbacks.current = { onRendered, onEvidence };
 
   useEffect(() => {
     setPageNumber(page.page);
     setZoom(1);
   }, [page.document_id, page.page]);
+
+  useEffect(() => { setNumPages(0); }, [page.pdf_url]);
 
   useEffect(() => {
     const element = stage.current;
@@ -57,10 +64,13 @@ export default function PdfViewer({ page, highlights, scanning, onRendered, onEv
     return () => observer.disconnect();
   }, []);
 
+  // só a página, o tamanho ou o zoom exigem nova renderização do texto; trocar o trecho não
   useEffect(() => {
     setMarks([]);
     setRendered(false);
-  }, [pageNumber, page.document_id, box.width, box.height, zoom, highlightKey]);
+  }, [pageNumber, page.document_id, box.width, box.height, zoom]);
+
+  useEffect(() => { setMarks([]); }, [highlightKey]);
 
   const fitWidth = Math.max(220, Math.floor(Math.min(box.width - 28, (box.height - 28) * aspect)));
   const width = Math.round(fitWidth * zoom);
@@ -85,7 +95,7 @@ export default function PdfViewer({ page, highlights, scanning, onRendered, onEv
     }
     const origin = host.getBoundingClientRect();
     const found: Mark[] = [];
-    for (const highlight of highlights) {
+    for (const highlight of highlightsRef.current) {
       const full = plain(highlight.quote);
       const attempts = [full, full.slice(0, 90), full.slice(0, 45), full.slice(-45)].filter((item) => item.length >= 12);
       let start = -1;
@@ -115,14 +125,15 @@ export default function PdfViewer({ page, highlights, scanning, onRendered, onEv
       lines.forEach((rect, index) => found.push({ group: highlight.id, index, left: rect.left - origin.left - 2, top: rect.top - origin.top - 1, width: rect.width + 4, height: rect.height + 2 }));
     }
     setMarks(found);
-    if (found.length) onEvidence?.();
-  }, [highlights, onEvidence]);
+    if (found.length) callbacks.current.onEvidence?.();
+    // highlightKey muda quando os trechos a marcar mudam de verdade
+  }, [highlightKey]);
 
   const onTextLayer = useCallback(() => {
     setRendered(true);
-    onRendered?.();
+    callbacks.current.onRendered?.();
     window.setTimeout(locate, 40);
-  }, [locate, onRendered]);
+  }, [locate]);
 
   useEffect(() => {
     if (rendered) locate();
