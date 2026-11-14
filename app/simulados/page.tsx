@@ -19,7 +19,7 @@ type Phase = "setup" | "building" | "running" | "result";
 type Slot = { n: number; document_id: string; subject: string; pages: number[]; format: string };
 /** Questão do simulado: as escritas pela IA trazem um comentário por alternativa, como no gabarito da Prova 1. */
 type Item = Pick<Question, "id" | "prompt" | "options" | "answer" | "source"> & { comments?: string[]; explanation?: string; format?: string; topic?: string; fromBank?: boolean };
-type Options = { recentes: { id: string; subject: string }[]; todas: { id: string; subject: string }[]; ia: boolean };
+type Options = { recentes: { id: string; subject: string }[]; todas: { id: string; subject: string }[]; ia: boolean; revisao?: number };
 
 const KEYS = ["A", "B", "C", "D", "E"];
 const ease = [0.23, 1, 0.32, 1] as const;
@@ -74,6 +74,11 @@ export default function Simulados() {
     return () => { run.current++; abort.current?.abort(); };
   }, []);
 
+  const lectureNumbers = useMemo(() => (options ? options.todas.map((item) => lectureNumber(item.id)) : Array.from({ length: 12 }, (_, position) => position + 1)), [options]);
+  const recentNumbers = useMemo(() => (options ? options.recentes.map((item) => lectureNumber(item.id)) : [11, 12]), [options]);
+  const recentLabel = useMemo(() => lectureList(recentNumbers.map((number) => `aula-${number}`)) || "Últimas aulas", [recentNumbers]);
+  // mesma conta do servidor: no foco recente, cerca de um quarto das questões é revisão das aulas anteriores
+  const reviewCount = scope === "recentes" ? Math.max(1, Math.round(count * (options?.revisao ?? 0.25))) : 0;
   const scopeIds = useMemo(() => (options ? options[scope].map((item) => item.id) : scope === "recentes" ? ["aula-11", "aula-12"] : []), [options, scope]);
   const point = useCallback((target: string, label: string, gesture: NonNullable<CursorState>["gesture"]) => setCursor({ target, label, gesture, key: ++cursorKey.current }), []);
 
@@ -131,6 +136,26 @@ export default function Simulados() {
       const decoder = new TextDecoder();
       let buffer = "";
       const arrived: Item[] = [];
+      let streamDone = false;
+      // o Aster desenha cada questão no quadro assim que ela chega, sem esperar a prova inteira
+      const stager = (async () => {
+        let position = 0;
+        while (alive()) {
+          if (position >= arrived.length) {
+            if (streamDone) break;
+            await pause(150);
+            continue;
+          }
+          written[position] = arrived[position];
+          setDeck([...written]);
+          await pause(60);
+          const target = `sim-${position + 1}`;
+          point(target, `Escrevendo a questão ${position + 1}`, "draw");
+          await waitForDrawn(target, 2200);
+          await pause(220);
+          position++;
+        }
+      })();
       while (alive()) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -143,22 +168,12 @@ export default function Simulados() {
           if (event.type === "plan") { planned = event.data.items as Slot[]; setSlots(planned); }
           if (event.type === "question") arrived.push(event.data.question as Item);
           if (event.type === "failed") failure = String(event.data.message ?? "");
-          if (event.type === "checking") { setChecking(true); point("build-title", "Resolvendo a prova para conferir o gabarito", "point"); }
-          if (event.type === "done") { setModel(String(event.data.model ?? "")); setVerified(!!event.data.verified); setChecking(false); }
+          if (event.type === "done") { setModel(String(event.data.model ?? "")); setVerified(!!event.data.verified); }
         }
       }
+      streamDone = true;
+      await stager;
       if (!alive()) return;
-      // o Aster desenha cada questão no quadro, uma por vez
-      for (const [position, question] of arrived.entries()) {
-        if (!alive()) return;
-        written[position] = question;
-        setDeck([...written]);
-        await pause(60);
-        const target = `sim-${position + 1}`;
-        point(target, `Escrevendo a questão ${position + 1}`, "draw");
-        await waitForDrawn(target, 2200);
-        await pause(260);
-      }
     } catch (problem) {
       if (controller.signal.aborted) return;
       failure = (problem as Error).message;
@@ -235,28 +250,35 @@ export default function Simulados() {
       <main className={`quiz-main ${phase === "building" ? "is-wide" : ""}`}>
         <AnimatePresence mode="wait">
           {phase === "setup" && (
-            <motion.section key="setup" className="quiz-panel quiz-intro" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.4, ease }}>
-              <div>
-                <h1>Uma prova nova a cada vez.</h1>
-                <p>O Aster lê os slides e escreve questões inéditas no formato da Prova 1: cinco alternativas, casos com cálculo, afirmações e asserção e razão. Cada gabarito vem comentado e aponta a página da aula.</p>
-                <div className="quiz-setup">
+            <motion.section key="setup" className="quiz-panel quiz-setup-panel" initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.4, ease }}>
+              <div className="setup-form">
+                <header>
+                  <h1>Uma prova nova a cada vez.</h1>
+                  <p>O Aster lê os slides e escreve questões inéditas no formato da Prova 1, com o gabarito comentado.</p>
+                </header>
+
+                <fieldset className="quiz-field">
+                  <legend><span className="setup-step">1</span>Quer que use todas as aulas ou só depois da primeira prova?</legend>
+                  <div className="scope-cards">
+                    {(["recentes", "todas"] as Scope[]).map((value) => (
+                      <label key={value} className={`scope-card ${scope === value ? "is-on" : ""}`}>
+                        <input type="radio" name="scope" value={value} checked={scope === value} onChange={() => setScope(value)} />
+                        <span className="scope-check" aria-hidden="true"><Icon name="check" size={13} strokeWidth={3} /></span>
+                        <strong>{value === "recentes" ? "Só depois da primeira prova" : "Todas as aulas"}</strong>
+                        <small>{value === "recentes" ? `Foco nas ${recentLabel.toLowerCase()}, com um pouco de revisão` : "Da primeira à última, por igual"}</small>
+                        <span className="lecture-dots" aria-hidden="true">
+                          {lectureNumbers.map((number) => (
+                            <i key={number} className={value === "todas" || recentNumbers.includes(number) ? "is-main" : "is-review"}>{number}</i>
+                          ))}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <div className="setup-row">
                   <fieldset className="quiz-field">
-                    <legend>Quer que use todas as aulas ou só depois da primeira prova?</legend>
-                    <div className="scope-cards">
-                      {(["recentes", "todas"] as Scope[]).map((value) => (
-                        <label key={value} className={`scope-card ${scope === value ? "is-on" : ""}`}>
-                          <input type="radio" name="scope" value={value} checked={scope === value} onChange={() => setScope(value)} />
-                          <strong>{value === "recentes" ? "Só depois da primeira prova" : "Todas as aulas"}</strong>
-                          <small>{value === "recentes"
-                            ? `${options ? lectureList(options.recentes.map((item) => item.id)) : "As duas últimas aulas"}, com algumas questões das anteriores`
-                            : options ? lectureList(options.todas.map((item) => item.id)) : "Da primeira à última"}</small>
-                          {options && value === "recentes" && <span className="scope-subjects">{options.recentes.map((item) => item.subject).filter(Boolean).join(" · ")}</span>}
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-                  <fieldset className="quiz-field">
-                    <legend>Questões</legend>
+                    <legend><span className="setup-step">2</span>Quantas questões?</legend>
                     <div className="segmented">
                       {[3, 5, 8, 10].map((value) => (
                         <label key={value}>
@@ -267,19 +289,36 @@ export default function Simulados() {
                     </div>
                   </fieldset>
                   <fieldset className="quiz-field">
-                    <legend>Correção</legend>
+                    <legend><span className="setup-step">3</span>Quando corrigir?</legend>
                     <div className="segmented">
                       <label><input type="radio" name="mode" checked={mode === "treino"} onChange={() => setMode("treino")} /><span>A cada questão</span></label>
-                      <label><input type="radio" name="mode" checked={mode === "prova"} onChange={() => setMode("prova")} /><span>Só no final, como na prova</span></label>
+                      <label><input type="radio" name="mode" checked={mode === "prova"} onChange={() => setMode("prova")} /><span>Só no final</span></label>
                     </div>
                   </fieldset>
-                  <div className="quiz-actions">
-                    <button type="button" className="primary-button" onClick={build}>Montar a prova<Icon name="right" size={18} /></button>
-                    {options && !options.ia && <small className="quiz-hint">Sem chave de IA: as questões virão do banco conferido.</small>}
-                  </div>
                 </div>
               </div>
-              <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3.4, repeat: Infinity, ease: "easeInOut" }}><Mascot mood="idle" size={150} /></motion.div>
+
+              <aside className="setup-ticket" aria-label="Resumo da prova">
+                <motion.div className="ticket-mascot" animate={{ y: [0, -6, 0] }} transition={{ duration: 3.4, repeat: Infinity, ease: "easeInOut" }}><Mascot mood="idle" size={92} /></motion.div>
+                <p className="ticket-kicker">Sua prova</p>
+                <p className="ticket-count"><motion.b key={count} initial={{ y: 10, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.25 }}>{count}</motion.b> questões</p>
+                <div className="ticket-split" role="img" aria-label={reviewCount ? `${count - reviewCount} das ${recentLabel.toLowerCase()} e ${reviewCount} de revisão` : `${count} questões de todas as aulas`}>
+                  <motion.span className="is-main" animate={{ flexGrow: count - reviewCount }} transition={{ type: "spring", stiffness: 260, damping: 28 }} />
+                  {reviewCount > 0 && <motion.span className="is-review" initial={{ flexGrow: 0 }} animate={{ flexGrow: reviewCount }} transition={{ type: "spring", stiffness: 260, damping: 28 }} />}
+                </div>
+                <ul className="ticket-legend">
+                  <li><i className="is-main" /><b>{count - reviewCount}</b> {scope === "recentes" ? `das ${recentLabel.toLowerCase()}` : "de todas as aulas"}</li>
+                  {reviewCount > 0 && <li><i className="is-review" /><b>{reviewCount}</b> de revisão das anteriores</li>}
+                </ul>
+                <ul className="ticket-facts">
+                  <li><Icon name="check" size={14} strokeWidth={2.6} />5 alternativas, de A a E</li>
+                  <li><Icon name="check" size={14} strokeWidth={2.6} />Afirmações, caso prático, asserção e razão</li>
+                  <li><Icon name="check" size={14} strokeWidth={2.6} />Gabarito comentado e conferido</li>
+                  <li><Icon name="check" size={14} strokeWidth={2.6} />Correção {mode === "treino" ? "a cada questão" : "só no final, como na prova"}</li>
+                </ul>
+                <button type="button" className="primary-button ticket-go" onClick={build}>Montar a prova<Icon name="right" size={18} /></button>
+                <small className="quiz-hint">{options && !options.ia ? "Sem chave de IA: as questões virão do banco conferido." : "As questões aparecem conforme ficam prontas."}</small>
+              </aside>
             </motion.section>
           )}
 

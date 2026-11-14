@@ -27,7 +27,11 @@ RECENT_LECTURES = 2
 REVIEW_SHARE = 0.25
 DEADLINE_SECONDS = 75
 # se um modelo não respondeu neste tempo, o próximo da fila começa junto; vale a primeira resposta boa
-STAGGER_SECONDS = 10
+STAGGER_SECONDS = 4
+# a prova é escrita em blocos pequenos ao mesmo tempo: a resposta de cada pedido é curta e chega em poucos segundos
+CHUNK_SIZE = 3
+# o modelo que entregou por último vai para a frente da fila nos próximos pedidos
+_last_winner: str | None = None
 
 # Os três formatos de questão da Prova 1 (o gabarito comentado serviu só de molde de formato, não de conteúdo).
 FORMATS = {
@@ -36,8 +40,8 @@ FORMATS = {
         "rule": "Apresente quatro afirmações numeradas I, II, III e IV sobre o tema, algumas verdadeiras e algumas falsas, e pergunte quais estão corretas. As alternativas são combinações, como “I, II e IV, apenas”.",
     },
     "caso": {
-        "label": "Caso / cálculo",
-        "rule": "Descreva uma situação concreta (um sistema, uma equipe ou um conjunto de números) e peça a conclusão correta. Quando o slide trouxer fórmula ou métrica, inclua números para o aluno calcular.",
+        "label": "Caso prático",
+        "rule": "Descreva uma situação concreta (uma equipe, um produto ou um sistema) e pergunte qual conceito, decisão ou explicação se aplica. A resposta sai do entendimento do conceito, nunca de uma conta.",
     },
     "assercao": {
         "label": "Asserção e razão",
@@ -52,6 +56,7 @@ SYSTEM = """Você escreve questões de prova para a disciplina de Inteligência 
 - um comentário curto para cada alternativa, dizendo por que está certa ou errada, como num gabarito comentado.
 
 Regras:
+- A disciplina é conceitual. Nunca peça cálculo, conta, valor numérico ou aplicação de fórmula, mesmo que o slide traga números ou métricas: pergunte o que o conceito significa, quando se aplica e por quê.
 - Use somente o conteúdo dos slides fornecidos em cada questão. Não cobre nada que não esteja neles.
 - Não copie frases inteiras dos slides para o enunciado.
 - Distribua a alternativa correta entre as letras; não repita sempre a mesma.
@@ -214,7 +219,8 @@ def race(work, deadline_seconds: float, stagger: float = STAGGER_SECONDS):
     """Roda `work(spec)` nos modelos da fila, começando um novo a cada `stagger` segundos sem resposta
     (ou assim que o anterior falha). Devolve (resultado, modelo) do primeiro que entregar algo; (None, None) se nenhum.
     Na fila um por vez, um modelo lento na frente gastava o prazo inteiro."""
-    models = list(main.agent_models())
+    global _last_winner
+    models = sorted(main.agent_models(), key=lambda spec: spec.model != _last_winner)
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(models)))
     pending: dict[concurrent.futures.Future, Any] = {}
     started = time.monotonic()
@@ -239,18 +245,19 @@ def race(work, deadline_seconds: float, stagger: float = STAGGER_SECONDS):
                         main.block_model(spec, 60 if failure.code == "rate_limited" else 10)
                     continue
                 if result:
+                    _last_winner = spec.model
                     return result, spec.model
         return None, None
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
 
-def generate(items: list[dict], rng: random.Random) -> tuple[list[dict], str | None]:
+def generate(items: list[dict], rng: random.Random, deadline: float = DEADLINE_SECONDS) -> tuple[list[dict], str | None]:
     """Pede a prova aos modelos da fila e fica com a primeira que vier com questões válidas."""
     prompt = build_prompt(items)
 
     def work(spec):
-        session = make_session(spec, main.provider_key(spec.provider), SYSTEM, [TOOL], prompt, main.thinking_level())
+        session = make_session(spec, main.provider_key(spec.provider), SYSTEM, [TOOL], prompt, "minimal")
         turn = session.step(True, ("entregar_simulado",))
         for call in turn.calls:
             if call.name != "entregar_simulado":
@@ -262,7 +269,7 @@ def generate(items: list[dict], rng: random.Random) -> tuple[list[dict], str | N
                 return questions
         return None
 
-    questions, model = race(work, DEADLINE_SECONDS)
+    questions, model = race(work, deadline)
     return questions or [], model
 
 
@@ -309,10 +316,19 @@ def verify(questions: list[dict], items: list[dict]) -> tuple[list[dict], bool]:
                 return chosen
         return None
 
-    chosen, _ = race(work, 40, stagger=8)
+    chosen, _ = race(work, 30)
     if not chosen:
         return questions, False
     return [question for number, question in enumerate(questions, start=1) if chosen.get(number, LETTERS[question["answer"]]) == LETTERS[question["answer"]]], True
+
+
+def write_chunk(items: list[dict], rng: random.Random) -> tuple[list[dict], str | None, bool, int]:
+    """Um bloco da prova: escreve e confere. Devolve (questões, modelo, conferido, descartadas)."""
+    questions, model = generate(items, rng, deadline=40)
+    if not questions:
+        return [], None, False, 0
+    kept, verified = verify(questions, items)
+    return kept, model, verified, len(questions) - len(kept)
 
 
 @router.get("/opcoes")
@@ -343,23 +359,45 @@ async def run(request: SimuladoRequest, http_request: Request):
         if not main.agent_models():
             yield emit("failed", {"code": "no_model", "message": "Sem chave de IA configurada. Usando as questões do banco fixo."})
             return
-        try:
-            questions, model = await asyncio.wait_for(asyncio.to_thread(generate, items, rng), timeout=DEADLINE_SECONDS + 10)
-        except asyncio.TimeoutError:
-            questions, model = [], None
-        if not questions:
+        # cada bloco é escrito e conferido por conta própria; as questões aparecem conforme os blocos terminam
+        sent = dropped = 0
+        models: list[str] = []
+        all_verified = True
+        round_items = items
+        for _attempt in range(2):
+            chunks = [round_items[index:index + CHUNK_SIZE] for index in range(0, len(round_items), CHUNK_SIZE)]
+            tasks = [asyncio.create_task(asyncio.to_thread(write_chunk, chunk, random.Random(rng.random()))) for chunk in chunks]
+            try:
+                for finished in asyncio.as_completed(tasks, timeout=DEADLINE_SECONDS):
+                    try:
+                        questions, model, verified, discarded = await finished
+                    except Exception:
+                        continue
+                    dropped += discarded
+                    if not questions:
+                        continue
+                    all_verified = all_verified and verified
+                    if model and model not in models:
+                        models.append(model)
+                    for question in questions[:request.count - sent]:
+                        sent += 1
+                        yield emit("question", {"question": question})
+                    if sent >= request.count:
+                        break
+            except asyncio.TimeoutError:
+                pass
+            finally:
+                for task in tasks:
+                    task.cancel()
+            if sent >= request.count or not sent:
+                break
+            # faltou alguma (rejeitada no formato ou na conferência): pede de novo só as que faltam, de outras páginas
+            round_items = await asyncio.to_thread(plan, request.model_copy(update={"count": request.count - sent + 1}), rng)
+            if not round_items:
+                break
+        if not sent:
             yield emit("failed", {"code": "generation_failed", "message": "Os modelos não conseguiram escrever a prova agora. Usando as questões do banco fixo."})
             return
-        written = len(questions)
-        yield emit("checking", {"count": written})
-        try:
-            questions, verified = await asyncio.wait_for(asyncio.to_thread(verify, questions, items), timeout=50)
-        except asyncio.TimeoutError:
-            verified = False
-        dropped = written - len(questions)
-        questions = questions[:request.count]
-        for question in questions:
-            yield emit("question", {"question": question})
-        yield emit("done", {"model": model, "count": len(questions), "asked": request.count, "verified": verified, "dropped": dropped})
+        yield emit("done", {"model": ", ".join(models) or None, "count": sent, "asked": request.count, "verified": all_verified, "dropped": dropped})
 
     return StreamingResponse(main.with_heartbeat(events()), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
