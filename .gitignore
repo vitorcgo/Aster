@@ -1,0 +1,30 @@
+# Arquivos locais de desenvolvimento
+/.agents/
+/AGENTS.md
+/CONTEXTO-INTERNO-ASTER.md
+/skills-lock.json
+
+# Segredos e dependencias locais
+.env
+.env.*
+!.env.example
+node_modules/
+/data/materials/
+/data/settings.json
+/data/settings.tmp
+/*.pdf
+__pycache__/
+.venv/
+*.tsbuildinfo
+/tmp/
+
+# Artefatos gerados
+dist/
+build/
+.next/
+.next-prod/
+.next-v2/
+.playwright-cli/
+coverage/
+playwright-report/
+test-results/
