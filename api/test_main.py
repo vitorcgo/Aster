@@ -328,7 +328,7 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(TestClient(app).post("/api/ai/models", json={"provider": "inventado", "key": "sk-visitante-abc"}).status_code, 404)
 
     def test_question_has_a_total_time_limit(self):
-        with patch("api.main.AGENT_DEADLINE_SECONDS", 0), patch("api.main.call_model") as model:
+        with patch("api.main.rescue_answer", return_value=None), patch("api.main.AGENT_DEADLINE_SECONDS", 0), patch("api.main.call_model") as model:
             events = self.ask()
         model.assert_not_called()
         self.assertEqual((events[-1]["type"], events[-1]["data"]["code"]), ("run_failed", "timeout"))
@@ -360,7 +360,7 @@ class AgentTest(unittest.TestCase):
 
     def test_refused_key_moves_to_next_model_without_leaking(self):
         rejected = genai_errors.APIError(401, {"error": {"message": "secret detail"}})
-        with patch("api.main.call_model", side_effect=rejected) as model:
+        with patch("api.main.rescue_answer", return_value=None), patch("api.main.call_model", side_effect=rejected) as model:
             events = self.ask()
         self.assertEqual(model.call_count, 2)
         self.assertEqual(events[-1]["data"]["code"], "invalid_key")
@@ -394,12 +394,67 @@ class AgentTest(unittest.TestCase):
 
     def test_both_models_failing_return_safe_error(self):
         unavailable = genai_errors.APIError(503, {"error": {"message": "private server detail"}})
-        with patch("api.main.call_model", side_effect=[unavailable, unavailable]) as model:
+        with patch("api.main.rescue_answer", return_value=None), patch("api.main.call_model", side_effect=[unavailable, unavailable]) as model:
             events = self.ask()
         self.assertEqual(model.call_count, 2)
         self.assertEqual(events[-1]["type"], "run_failed")
         self.assertEqual(events[-1]["data"]["code"], "service_unavailable")
         self.assertNotIn("private server detail", events[-1]["data"]["message"])
+
+    def test_failure_says_the_error_code_of_each_model(self):
+        limited = genai_errors.APIError(429, {"error": {"message": "quota"}})
+        broke = genai_errors.APIError(402, {"error": {"message": "billing"}})
+        with patch("api.main.rescue_answer", return_value=None), patch("api.main.call_model", side_effect=[limited, broke]):
+            events = self.ask()
+        fallback = next(event for event in events if event["type"] == "model_fallback")
+        self.assertIn("429 · limite de uso", fallback["data"]["message"])
+        message = events[-1]["data"]["message"]
+        self.assertIn("primary: 429 · limite de uso", message)
+        self.assertIn("backup: 402 · sem créditos", message)
+
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_stuck_model_hands_over_to_the_next_instead_of_eating_the_whole_time(self):
+        import time as clock
+        hit = search("overfitting")[0]
+        calls = []
+
+        def model(name, session, force_final=False, final_tools=()):
+            calls.append(name)
+            if name == "primary":
+                clock.sleep(1.5)  # trava além do limite do passo
+            if len(calls) == 2:
+                return turn(("buscar_nas_aulas", {"consulta": "overfitting"}))
+            return turn(("responder", {"blocos": [{"texto": "Ok.", "citacoes": [hit.id]}]}))
+
+        with patch("api.main.STEP_TIMEOUT_SECONDS", 0.3), patch("api.main.call_model", side_effect=model):
+            events = self.ask()
+        self.assertEqual(events[-1]["type"], "answer_ready")
+        self.assertEqual(events[-1]["data"]["model"], "backup")
+        fallback = next(event for event in events if event["type"] == "model_fallback")
+        self.assertIn("tempo esgotado", fallback["data"]["message"])
+
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_when_every_model_fails_the_student_still_gets_the_passages_found(self):
+        # o primeiro modelo achou trechos e depois a fila inteira caiu: a resposta sai com esses trechos e o motivo
+        unavailable = genai_errors.APIError(503, {"error": {"message": "private server detail"}})
+        script = [turn(("buscar_nas_aulas", {"consulta": "embeddings"})), unavailable, unavailable]
+        with patch("api.main.call_model", side_effect=script):
+            events = self.ask()
+        last = events[-1]
+        self.assertEqual((last["type"], last["data"]["mode"]), ("answer_ready", "local"))
+        found = next(event for event in events if event["type"] == "search_results")["data"]["hits"]
+        self.assertTrue({source["id"] for source in last["data"]["sources"]} <= {hit["id"] for hit in found})
+        self.assertTrue(all(block["citation_ids"] for block in last["data"]["blocks"]))
+        self.assertIn("503 · provedor fora do ar", last["data"]["notice"])
+        self.assertNotIn("private server detail", last["data"]["notice"])
+
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_out_of_time_without_research_still_answers_from_a_quick_search(self):
+        with patch("api.main.AGENT_DEADLINE_SECONDS", 0), patch("api.main.call_model") as model:
+            events = self.ask()
+        model.assert_not_called()
+        self.assertEqual((events[-1]["type"], events[-1]["data"]["mode"]), ("answer_ready", "local"))
+        self.assertIn("não terminou a tempo", events[-1]["data"]["notice"])
 
     def test_greeting_is_answered_without_research(self):
         with patch("api.main.call_model", side_effect=[turn(("conversar", {"texto": "Oi! Eu sou o Aster."}))]):
@@ -847,3 +902,21 @@ class FormatMixTest(unittest.TestCase):
                 mix = Counter(format_sequence(count, random.Random(count)))
                 self.assertEqual(sum(mix.values()), count)
                 self.assertEqual(set(mix), {"caso", "afirmacoes", "assercao"})
+
+
+class VisitorSafetyNetTest(unittest.TestCase):
+    """Fila de um modelo só não morre: entram os modelos padrão, mas só dos provedores de que o visitante tem chave."""
+
+    def test_single_model_queue_gets_default_models_of_the_visitors_own_providers(self):
+        from api import visitor
+        from api.main import configured_chain
+        with patch.dict(os.environ, {"GEMINI_MODEL": "", "GEMINI_FALLBACK_MODEL": "", "GEMINI_LAST_RESORT": ""}):
+            ai = visitor.VisitorAI(keys={"nvidia": "nvapi-visitante-1234567890", "gemini": "chave-gemini-visitante-123"}, chain=[{"provider": "nvidia", "model": "minimax"}])
+            with visitor.use(ai):
+                chain = [(spec.provider, spec.model) for spec in configured_chain()]
+            self.assertEqual(chain[0], ("nvidia", "minimax"))
+            self.assertIn(("gemini", "gemini-3.8-flash"), chain)
+            # sem chave do Gemini, a chave do site nunca entra na fila do visitante
+            only = visitor.VisitorAI(keys={"nvidia": "nvapi-visitante-1234567890"}, chain=[{"provider": "nvidia", "model": "minimax"}])
+            with visitor.use(only):
+                self.assertEqual([(spec.provider, spec.model) for spec in configured_chain()], [("nvidia", "minimax")])

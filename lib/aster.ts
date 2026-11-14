@@ -81,6 +81,8 @@ export type Turn = {
   blocks: AnswerBlock[];
   sources: Source[];
   usedFallback: boolean;
+  /** quando a IA não terminou e a resposta saiu dos trechos já achados: o motivo, para mostrar ao aluno */
+  notice?: string;
   /** dados pessoais que a API ocultou antes de enviar à IA (CPF, cartão...) */
   masked?: string[];
   chat: boolean;
@@ -194,9 +196,11 @@ export function applyEvent(turn: Turn, event: RunEvent): Turn {
         seen,
         blocks: data.blocks ?? [],
         sources,
-        model: data.model ?? turn.model,
+        // resposta de resgate não foi escrita por modelo nenhum: o rodapé não pode creditar o último que falhou
+        model: data.notice ? null : data.model ?? turn.model,
         mode: data.mode ?? turn.mode,
-        usedFallback: !!data.used_fallback,
+        usedFallback: !data.notice && !!data.used_fallback,
+        notice: data.notice ? String(data.notice) : undefined,
         chat: data.kind === "chat",
         nodes: [...turn.nodes, { kind: "answer", id: `${turn.id}-a`, citations: sources.length, chat: data.kind === "chat" }],
       };

@@ -66,6 +66,9 @@ from api.providers import (
 load_dotenv(ROOT / ".env", override=False)
 
 MAX_AGENT_STEPS = 8
+# Um passo de um modelo não pode passar disto: se ele travar, a fila segue para o próximo em vez de
+# gastar o tempo inteiro da pergunta esperando (o último da fila pode usar o que sobrar).
+STEP_TIMEOUT_SECONDS = 30
 MAX_WEB_SEARCHES = 3
 # tempo máximo de uma pergunta, somando todos os passos e modelos; sem isso um modelo lento travava minutos.
 # None = o valor do painel do administrador (os testes trocam por um número fixo)
@@ -83,14 +86,20 @@ def gemini_api_key() -> str:
 
 
 def gemini_models() -> tuple[str, ...]:
-    primary = os.getenv("GEMINI_MODEL", "").strip() or "gemini-4-hydrogen"
-    fallback = os.getenv("GEMINI_FALLBACK_MODEL", "").strip() or "gemini-3.8-flash"
+    primary = os.getenv("GEMINI_MODEL", "").strip() or "gemini-3.8-flash"
+    fallback = os.getenv("GEMINI_FALLBACK_MODEL", "").strip() or "gemini-3.5-flash-lite"
     return tuple(dict.fromkeys((primary, fallback)))
 
 
 # Modelo que entra por último, se o principal e o reserva falharem. Vazio desliga.
+# O gemini-4-hydrogen fica aqui: é o mais forte, mas o plano gratuito dá só 20 pedidos por dia.
 def last_resort_model() -> str:
-    return os.getenv("GEMINI_LAST_RESORT", "gemini-3.5-flash-lite").strip()
+    return os.getenv("GEMINI_LAST_RESORT", "gemini-4-hydrogen").strip()
+
+
+# A pesquisa web pelo Google só resume fontes: vai sempre no modelo leve, para não gastar a cota dos outros.
+def web_model() -> str:
+    return os.getenv("GEMINI_WEB_MODEL", "").strip() or "gemini-3.5-flash-lite"
 
 
 _model_blocked_until: dict[str, float] = {}
@@ -124,7 +133,11 @@ def default_chain() -> list[ModelSpec]:
 def configured_chain() -> list[ModelSpec]:
     own = visitor.chain()
     if own:
-        return [ModelSpec(provider, model) for provider, model in own]
+        chosen = [ModelSpec(provider, model) for provider, model in own]
+        # rede de segurança: depois da fila escolhida entram os modelos padrão dos provedores de que o visitante
+        # tem chave (só os dele, nunca a chave do site), para uma fila de um modelo só não morrer se ele travar
+        extra = [spec for spec in default_chain() if visitor.key(spec.provider) and spec not in chosen]
+        return chosen + extra
     if visitor.current() is not None:
         # o visitante mandou chaves sem escolher modelos: a fila padrão, só com os provedores que ele tem
         return [spec for spec in default_chain() if visitor.key(spec.provider)]
@@ -195,31 +208,46 @@ class GenerationFailure:
     code: str
     message: str
     try_fallback: bool
+    # o motivo curto, com o código HTTP quando houver ("429 · limite de uso"): aparece na troca de modelo e na falha
+    reason: str = ""
+
+
+def _http_status(error: Exception) -> int | None:
+    """Código HTTP do erro do provedor, venha de qual SDK vier (genai, interações, OpenAI ou o nosso)."""
+    for name in ("code", "status_code", "status"):
+        value = getattr(error, name, None)
+        if isinstance(value, int) and 100 <= value <= 599:
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    return None
 
 
 def classify_generation_error(error: Exception) -> GenerationFailure:
-    if isinstance(error, (genai_errors.APIError, ProviderHTTPError)):
-        status = error.code
-        if status == 401:
-            return GenerationFailure("invalid_key", "A chave do provedor foi recusada. Confira a chave em Modelos.", True)
-        if status == 402:
-            return GenerationFailure("billing_required", "A conta do provedor está sem créditos.", True)
-        if status == 403:
-            return GenerationFailure("access_denied", "A chave não tem acesso a este modelo.", True)
-        if status == 404:
-            return GenerationFailure("model_unavailable", "O modelo configurado não está disponível para esta chave.", True)
-        if status == 429:
-            return GenerationFailure("rate_limited", "Os modelos atingiram um limite de uso. Aguarde e tente novamente.", True)
-        if status in (408, 500, 502, 503, 504) or isinstance(status, int) and status >= 500:
-            return GenerationFailure("service_unavailable", "O serviço de modelos está indisponível no momento. Tente novamente.", True)
-        if status in (400, 416, 422):
-            return GenerationFailure("invalid_request", "O modelo rejeitou a configuração da consulta. Ele pode não aceitar ferramentas.", True)
-        return GenerationFailure("model_error", "Não foi possível consultar o modelo. Tente novamente.", True)
     if isinstance(error, InvalidAnswerError):
-        return GenerationFailure("invalid_answer", "O modelo não conseguiu montar uma resposta com fontes válidas. Reformule a pergunta.", True)
+        return GenerationFailure("invalid_answer", "O modelo não conseguiu montar uma resposta com fontes válidas. Reformule a pergunta.", True, "resposta sem fonte válida")
+    status = _http_status(error)
+    if status is not None:
+        if status == 401:
+            return GenerationFailure("invalid_key", "A chave do provedor foi recusada. Confira a chave em Modelos.", True, "401 · chave recusada")
+        if status == 402:
+            return GenerationFailure("billing_required", "A conta do provedor está sem créditos.", True, "402 · sem créditos")
+        if status == 403:
+            return GenerationFailure("access_denied", "A chave não tem acesso a este modelo.", True, "403 · sem acesso ao modelo")
+        if status == 404:
+            return GenerationFailure("model_unavailable", "O modelo configurado não existe ou não está disponível para esta chave.", True, "404 · modelo não encontrado")
+        if status == 429:
+            return GenerationFailure("rate_limited", "Os modelos atingiram um limite de uso. Aguarde e tente novamente.", True, "429 · limite de uso")
+        if status == 408:
+            return GenerationFailure("timeout", "O provedor demorou demais para responder. Tente novamente.", True, "408 · tempo esgotado")
+        if status >= 500:
+            return GenerationFailure("service_unavailable", "O serviço de modelos está indisponível no momento. Tente novamente.", True, f"{status} · provedor fora do ar")
+        if status in (400, 416, 422):
+            return GenerationFailure("invalid_request", "O modelo rejeitou a configuração da consulta. Ele pode não aceitar ferramentas.", True, f"{status} · pedido recusado pelo modelo")
+        return GenerationFailure("model_error", "Não foi possível consultar o modelo. Tente novamente.", True, f"{status} · erro do provedor")
     if isinstance(error, (TimeoutError, ConnectionError, OSError)):
-        return GenerationFailure("connection_error", "A conexão com o provedor falhou. Tente novamente.", True)
-    return GenerationFailure("model_error", "Não foi possível concluir a consulta ao modelo. Tente novamente.", True)
+        return GenerationFailure("connection_error", "A conexão com o provedor falhou. Tente novamente.", True, "sem conexão com o provedor")
+    return GenerationFailure("model_error", "Não foi possível concluir a consulta ao modelo. Tente novamente.", True, "erro inesperado do modelo")
 
 
 # ---------------------------------------------------------------- internet
@@ -261,7 +289,7 @@ def google_web_search(query: str) -> list[dict]:
 
     client = genai.Client(api_key=provider_key("gemini"), http_options={"retry_options": {"attempts": 1}, "timeout": 25000})
     # a pesquisa só resume fontes: usa o modelo leve, para não gastar a cota do modelo principal do agente
-    model = last_resort_model() or ([spec.model for spec in agent_models() if spec.provider == "gemini"] or list(gemini_models()))[0]
+    model = web_model()
     interaction = client.interactions.create(
         model=model,
         input=f"Pesquise na web e resuma em até 4 frases, em português, informações confiáveis sobre: {query}",
@@ -751,6 +779,40 @@ def carried_sources(agent: "Agent") -> str:
     return "\n\n<fontes_ja_encontradas>\nOutro modelo começou esta pesquisa e falhou. Estas fontes já foram encontradas e podem ser citadas pelos ids; pesquise de novo só se faltar algo.\n" + "\n".join(lines) + "\n</fontes_ja_encontradas>"
 
 
+def rescue_answer(agent: "Agent", question: str, notice: str) -> dict | None:
+    """Rede de segurança: nenhum modelo terminou, mas a pesquisa não pode morrer à toa. Entrega os trechos das aulas
+    que o Aster já tinha achado (ou, se ainda não achou nada, os de uma busca rápida), com citação e um aviso claro."""
+    found = [item for item in agent.seen.values() if isinstance(item, Evidence)]
+    if not found:
+        found = search(question) or search_relaxed(question)
+    picked: list[Evidence] = []
+    pages: set[tuple[str, int]] = set()
+    for item in found:
+        # um trecho por página, até dois: o suficiente para responder sem virar um despejo de texto
+        if (item.document_id, item.page) in pages:
+            continue
+        pages.add((item.document_id, item.page))
+        picked.append(item)
+        if len(picked) == 2:
+            break
+    if not picked:
+        return None
+    answer = GeneratedAnswer(blocks=[AnswerBlock(text=item.quote, citation_ids=[item.id]) for item in picked])
+    try:
+        validate_answer(answer, picked)
+    except InvalidAnswerError:
+        return None
+    return {"blocks": [block.model_dump() for block in answer.blocks], "sources": [item.public() for item in picked], "mode": "local", "model": None, "used_fallback": True, "steps": 0, "notice": notice}
+
+
+def failure_summary(attempts: list[tuple[str, str]], message: str) -> str:
+    """A mensagem final diz o que aconteceu com cada modelo tentado: "gemini-3.8-flash: 429 · limite de uso"."""
+    if not attempts:
+        return message
+    detail = "; ".join(f"{model}: {reason}" for model, reason in attempts)
+    return f"{message} ({detail})"
+
+
 async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
     models = agent_models()
     chain = configured_chain()
@@ -758,10 +820,13 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
     limit_seconds = deadline_seconds()
     deadline = time.monotonic() + limit_seconds
     agent = Agent()
+    # cada modelo que falhou e o motivo, para a troca e a mensagem final dizerem o que aconteceu
+    attempts: list[tuple[str, str]] = []
     for model_index, spec in enumerate(models):
         model = spec.model
         if model_index:
-            yield emit("model_fallback", {"model": model, "provider": spec.provider, "message": "O modelo anterior falhou. O Aster recomeçou com o reserva."})
+            why = f" ({attempts[-1][1]})" if attempts else ""
+            yield emit("model_fallback", {"model": model, "provider": spec.provider, "message": f"{models[model_index - 1].model} falhou{why}. O Aster recomeçou com {model}."})
         elif spec != preferred:
             yield emit("model_fallback", {"model": model, "provider": spec.provider, "message": "O modelo principal está sem cota no momento. O Aster está usando o reserva."})
         agent.reconsidered = False
@@ -773,14 +838,32 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
             yield emit("agent_thinking", {"step": step + 1, "model": model, "provider": spec.provider})
             remaining = deadline - time.monotonic()
             if remaining <= 1:
-                yield emit("run_failed", {"code": "timeout", "message": f"A pesquisa passou de {limit_seconds:.0f} s e foi interrompida. Tente uma pergunta mais direta."})
+                message = failure_summary(attempts, f"A pesquisa passou de {limit_seconds:.0f} s e foi interrompida.")
+                rescue = rescue_answer(agent, request.question, f"A IA não terminou a tempo. {message} Estes são os trechos das aulas que o Aster já tinha achado.")
+                if rescue:
+                    yield emit("answer_ready", rescue)
+                    return
+                yield emit("run_failed", {"code": "timeout", "message": message + " Tente uma pergunta mais direta."})
                 return
+            last_model = model_index + 1 >= len(models)
+            budget = remaining if last_model else min(remaining, STEP_TIMEOUT_SECONDS)
             try:
                 # a thread do provedor não pode ser cancelada, mas paramos de esperar por ela no limite
-                turn = await asyncio.wait_for(asyncio.to_thread(call_model, model, session, force_final or remaining < 20), timeout=remaining)
+                turn = await asyncio.wait_for(asyncio.to_thread(call_model, model, session, force_final or remaining < 20), timeout=budget)
             except asyncio.TimeoutError:
-                yield emit("run_failed", {"code": "timeout", "message": f"O modelo {model} não respondeu dentro de {limit_seconds:.0f} s. Tente de novo."})
-                return
+                if last_model or deadline - time.monotonic() < 10:
+                    attempts.append((model, f"tempo esgotado, {budget:.0f} s sem resposta"))
+                    message = failure_summary(attempts, "Nenhum modelo respondeu a tempo.")
+                    rescue = rescue_answer(agent, request.question, f"{message} Estes são os trechos das aulas que o Aster já tinha achado.")
+                    if rescue:
+                        yield emit("answer_ready", rescue)
+                        return
+                    yield emit("run_failed", {"code": "timeout", "message": message})
+                    return
+                # lento demais: este modelo fica de fora por alguns minutos e o próximo da fila assume
+                failure = GenerationFailure("timeout", f"O modelo {model} não respondeu em {budget:.0f} s.", True, f"tempo esgotado, {budget:.0f} s sem resposta")
+                block_model(spec, 5)
+                break
             except Exception as error:
                 failure = classify_generation_error(error)
                 # modelo sem cota, fora do ar ou lento demais: pula nas próximas perguntas
@@ -857,8 +940,16 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
             session.add_results(results)
         else:
             failure = GenerationFailure("too_many_steps", "O Aster não conseguiu concluir a pesquisa a tempo. Tente uma pergunta mais direta.", True)
+        if failure:
+            attempts.append((model, failure.reason or failure.code))
         if failure and (not failure.try_fallback or model_index + 1 >= len(models)):
-            yield emit("run_failed", {"code": failure.code, "message": failure.message})
+            message = failure_summary(attempts, failure.message)
+            # a chave recusada ou sem crédito não é falha de pesquisa: mesmo assim o aluno sai com os trechos achados
+            rescue = rescue_answer(agent, request.question, f"A IA não conseguiu terminar. {message} Estes são os trechos das aulas que o Aster já tinha achado.")
+            if rescue:
+                yield emit("answer_ready", rescue)
+                return
+            yield emit("run_failed", {"code": failure.code, "message": message})
             return
 
 

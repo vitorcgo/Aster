@@ -226,6 +226,7 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
 
   return (
     <div className="answer" data-cursor={`answer-${turn.id}`} ref={root}>
+      {turn.notice && <p className="answer-notice"><Icon name="alert" size={16} /><span>{turn.notice}</span></p>}
       {blocks.map((block, index) => {
         const start = consumed;
         consumed += block.length;
@@ -250,7 +251,7 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
         {done && (
           <motion.footer className="answer-foot" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
             <div className="answer-badges">
-              {turn.mode === "local" && <span className="badge badge-warn">Modo local: trechos copiados, sem IA</span>}
+              {turn.mode === "local" && !turn.notice && <span className="badge badge-warn">Modo local: trechos copiados, sem IA</span>}
               {turn.usedFallback && <span className="badge">Modelo reserva</span>}
               {turn.remembered?.map((fact) => <span key={fact} className="badge badge-memory" title="Guardado na memória do Aster, neste navegador">Guardei: {fact}</span>)}
               {!!turn.masked?.length && <span className="badge" title="Esses dados foram trocados por marcadores antes de a pergunta sair deste computador">{`Ocultei ${listPt(turn.masked)} antes de enviar`}</span>}
@@ -268,7 +269,7 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
             <TurnActions turn={turn} onEdit={onEdit} onRetry={onRetry} running={running} />
             {!turn.chat && (
               <p className="answer-meta">
-                {actions} {actions === 1 ? "ação" : "ações"} em {(turn.elapsed / 1000).toFixed(1).replace(".", ",")} s{turn.model ? ` com ${turn.model}` : ""}
+                {actions} {actions === 1 ? "ação" : "ações"} em {(turn.elapsed / 1000).toFixed(1).replace(".", ",")} s{turn.notice ? ", sem IA" : turn.model ? ` com ${turn.model}` : ""}
                 {!active && <button type="button" className="link-button" onClick={() => onShowTrace(turn)}>Ver investigação</button>}
               </p>
             )}

@@ -1576,3 +1576,7 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   .ingest-flow.is-simple, .search-summary.is-simple { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .ingest-flow.is-simple .flow-step + .flow-step::before { display: none; }
 }
+
+/* a IA não terminou: a resposta veio dos trechos já achados, e o aviso diz por quê */
+.answer-notice { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; padding: 10px 12px; border-radius: 12px; background: var(--roof-soft); border: 1px solid var(--roof-line); color: var(--roof-light); font-size: 14px; line-height: 1.45; }
+.answer-notice svg { flex: none; margin-top: 2px; }
