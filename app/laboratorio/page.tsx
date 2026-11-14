@@ -16,6 +16,7 @@ import { StageSearch } from "@/components/lab/StageSearch";
 import { StageStream } from "@/components/lab/StageStream";
 import { lectureLabel, type RunEvent } from "@/lib/aster";
 import { labGet, recallQuestion, recallRun, STAGES, TALK, type SearchResult, type StageId } from "@/lib/lab";
+import { aiPayload } from "@/lib/ai";
 
 export default function Laboratorio() {
   const [stageId, setStageId] = useState<StageId>("ingestao");
@@ -87,7 +88,7 @@ export default function Laboratorio() {
     runAbort.current = abort;
     setRun({ question, events: [], raw: [], status: "running", live: true });
     try {
-      const response = await fetch("/api/tutor/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }), signal: abort.signal });
+      const response = await fetch("/api/tutor/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, ai: aiPayload() }), signal: abort.signal });
       if (!response.ok || !response.body) throw new Error("Não consegui falar com a API do Aster.");
       const reader = response.body.getReader();
       const decoder = new TextDecoder();

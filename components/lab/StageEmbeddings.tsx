@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "../Icon";
 import { lectureLabel } from "@/lib/aster";
 import { labPost } from "@/lib/lab";
+import { aiPayload } from "@/lib/ai";
 
 type Point = { id: string; document_id: string; page: number; quote: string; heading: string; lexical_rank: number; semantic_rank: number; cosine: number; x: number; y: number };
 type Result = { model: string; dimensions: number; question: { x: number; y: number }; candidates: Point[] };
@@ -25,7 +26,7 @@ export function StageEmbeddings({ question }: { question: string }) {
     setLoading(true);
     setError("");
     try {
-      setResult(await labPost<Result>("/api/lab/embeddings", { q: question }));
+      setResult(await labPost<Result>("/api/lab/embeddings", { q: question, ai: aiPayload() }));
     } catch (problem) {
       setError((problem as Error).message);
     } finally {
@@ -37,7 +38,7 @@ export function StageEmbeddings({ question }: { question: string }) {
     return (
       <div className="embed-start">
         <p>O Aster busca por palavras. Aqui a pergunta e os {15} melhores candidatos da busca viram vetores com o modelo de embeddings do Gemini, e a similaridade de cosseno reordena tudo pelo significado.</p>
-        <p className="lab-note">Faz uma chamada à API de embeddings com a chave do Gemini.</p>
+        <p className="lab-note">Faz uma chamada à API de embeddings do Gemini, com a sua chave.</p>
         <button type="button" className="primary-button" onClick={run} disabled={loading}><Icon name="network" size={17} />{loading ? "Calculando vetores" : "Calcular embeddings"}</button>
         {error && <p className="sheet-error">{error}</p>}
       </div>

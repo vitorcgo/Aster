@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 import { faviconUrl } from "@/lib/aster";
+import { VisitorKeys } from "./VisitorKeys";
 
 type Provider = { id: string; label: string; site: string; keys_url: string; configured: boolean; source: "page" | "env" | null; masked: string | null };
 type ChainEntry = { provider: string; model: string; available?: boolean; paused?: boolean };
@@ -170,6 +171,8 @@ function seconds(ms: number) {
 
 export function ModelSettings({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [status, setStatus] = useState<AdminStatus | null>(null);
+  // quem abre o painel é um visitante; a área do dono do site fica atrás de um link discreto
+  const [owner, setOwner] = useState(false);
   const [view, setView] = useState<"modelos" | "seguranca">("modelos");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState("");
@@ -205,7 +208,7 @@ export function ModelSettings({ open, onClose }: { open: boolean; onClose: () =>
   }, [refresh]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) { setOwner(false); return; }
     void refresh();
     closeButton.current?.focus();
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -320,27 +323,32 @@ export function ModelSettings({ open, onClose }: { open: boolean; onClose: () =>
           >
             <header className="sheet-head">
               <div>
-                <h2 id="models-title">{unlocked ? "Administração" : "Modelos de IA"}</h2>
-                <p>{unlocked ? "Chaves, fila de modelos e limites do site. Tudo fica salvo no servidor, sem precisar do .env." : "Configurações do Aster, protegidas por senha."}</p>
+                <h2 id="models-title">{owner ? "Área do dono do site" : "Modelos de IA"}</h2>
+                <p>{owner ? (unlocked ? "Limites do site e, se quiser, uma chave do site para quem não tiver a própria." : "Protegida por senha. Visitantes não precisam disto.") : "Escolha a IA que o Aster usa para pesquisar e responder."}</p>
               </div>
               <button ref={closeButton} type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><Icon name="close" /></button>
             </header>
 
             {error && <p className="sheet-error" role="alert">{error}</p>}
 
-            {status && !unlocked && <AdminGate status={status} onDone={refresh} />}
-            {unlocked && (
+            {!owner && <VisitorKeys />}
+            {!owner && <button type="button" className="owner-link" onClick={() => setOwner(true)}><Icon name="shield" size={14} />Sou o dono do site</button>}
+            {owner && <button type="button" className="text-button owner-back" onClick={() => setOwner(false)}><Icon name="left" size={14} />Voltar às minhas chaves</button>}
+
+            {owner && status && !unlocked && <AdminGate status={status} onDone={refresh} />}
+            {owner && unlocked && (
               <div className="admin-tabs" role="tablist" aria-label="Seções da administração">
                 {(["modelos", "seguranca"] as const).map((item) => (
                   <button key={item} type="button" role="tab" aria-selected={view === item} className={`admin-tab ${view === item ? "is-on" : ""}`} onClick={() => setView(item)}>
-                    <Icon name={item === "modelos" ? "settings" : "shield"} size={15} />{item === "modelos" ? "Modelos e chaves" : "Limites e segurança"}
+                    <Icon name={item === "modelos" ? "settings" : "shield"} size={15} />{item === "modelos" ? "Chave do site" : "Limites e segurança"}
                   </button>
                 ))}
               </div>
             )}
-            {unlocked && view === "seguranca" && <SecurityTab onLoggedOut={refresh} />}
+            {owner && unlocked && view === "seguranca" && <SecurityTab onLoggedOut={refresh} />}
 
-            {unlocked && view === "modelos" && <>
+            {owner && unlocked && view === "modelos" && <>
+            <p className="sheet-note">Opcional. Se você cadastrar uma chave aqui, quem não tiver a própria usa a do site, e o custo fica com você. Os limites da outra aba valem para essas perguntas.</p>
             <section className="sheet-section" aria-labelledby="chain-title">
               <div className="sheet-row">
                 <h3 id="chain-title">Fila do agente</h3>

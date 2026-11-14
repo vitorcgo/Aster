@@ -7,6 +7,7 @@ import { Icon } from "./Icon";
 import { Mascot, type MascotMood } from "./Mascot";
 import { ModelSettings, SETTINGS_EVENT } from "./ModelSettings";
 import { faviconUrl } from "@/lib/aster";
+import { AI_EVENT, loadAI, type VisitorAI } from "@/lib/ai";
 
 type Health = { mode: "ai" | "local"; materials: number; passages: number; model: string | null; provider: string | null } | null | "offline";
 
@@ -26,6 +27,16 @@ function prettyModel(model: string) {
 export function TopBar({ current, mood = "idle", onHome }: { current: "/" | "/simulados" | "/laboratorio"; mood?: MascotMood; onHome?: () => void }) {
   const [health, setHealth] = useState<Health>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // as chaves do visitante mandam no que aparece aqui: é com elas que as perguntas dele rodam
+  const [own, setOwn] = useState<VisitorAI>({ keys: {}, chain: [] });
+  useEffect(() => {
+    const sync = () => setOwn(loadAI());
+    sync();
+    window.addEventListener(AI_EVENT, sync);
+    return () => window.removeEventListener(AI_EVENT, sync);
+  }, []);
+  const ownProviders = Object.keys(own.keys);
+  const ownModel = own.chain.find((item) => own.keys[item.provider]) ?? null;
 
   const load = useCallback((attempt = 0) => {
     fetch("/api/health")
@@ -66,11 +77,19 @@ export function TopBar({ current, mood = "idle", onHome }: { current: "/" | "/si
         {health === null && <span className="status-chip">Conectando</span>}
         {health === "offline" && <span className="status-chip is-bad">API desligada</span>}
         {health && health !== "offline" && <span className="status-chip status-count">{health.materials} aulas</span>}
+        {ownProviders.length > 0 ? (
+          <button type="button" className={`status-chip status-model ${ownModel || own.keys.gemini ? "is-ai" : "is-warn"}`} onClick={() => setSettingsOpen(true)} aria-haspopup="dialog" title="Usando a sua chave">
+            <img src={faviconUrl(PROVIDER_SITE[ownModel?.provider ?? ownProviders[0]])} alt="" width="15" height="15" />
+            <span>{ownModel ? prettyModel(ownModel.model) : own.keys.gemini ? "Sua chave do Gemini" : "Escolha um modelo"}</span>
+            <Icon name="settings" size={15} />
+          </button>
+        ) : (
         <button type="button" className={`status-chip status-model ${health && health !== "offline" ? (health.mode === "local" ? "is-warn" : "is-ai") : ""}`} onClick={() => setSettingsOpen(true)} aria-haspopup="dialog">
           {health && health !== "offline" && health.provider && <img src={faviconUrl(PROVIDER_SITE[health.provider])} alt="" width="15" height="15" />}
-          <span>{health && health !== "offline" ? (health.mode === "local" ? "Sem IA, configurar" : prettyModel(health.model ?? "")) : "Modelos"}</span>
+          <span>{health && health !== "offline" ? (health.mode === "local" ? "Coloque sua chave de IA" : prettyModel(health.model ?? "")) : "Modelos"}</span>
           <Icon name="settings" size={15} />
         </button>
+        )}
       </div>
       <ModelSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </header>

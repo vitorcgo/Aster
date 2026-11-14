@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextvars
 import json
 import random
 import re
@@ -14,7 +15,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api import main, security
+from api import main, security, visitor
 from api.library import library, material_paths
 from api.providers import make_session
 
@@ -95,6 +96,7 @@ TOOL: dict[str, Any] = {
 class SimuladoRequest(BaseModel):
     scope: Literal["recentes", "todas"] = "recentes"
     count: int = Field(default=5, ge=3, le=10)
+    ai: visitor.VisitorAI | None = None
 
 
 def lecture_ids(scope: str) -> list[str]:
@@ -230,7 +232,8 @@ def race(work, deadline_seconds: float, stagger: float = STAGGER_SECONDS):
             elapsed = time.monotonic() - started
             if models and (not pending or elapsed - last_start >= stagger):
                 spec = models.pop(0)
-                pending[pool.submit(work, spec)] = spec
+                # cada thread leva uma cópia do contexto: as chaves do visitante valem lá dentro também
+                pending[pool.submit(contextvars.copy_context().run, work, spec)] = spec
                 last_start = elapsed
             if not pending:
                 break
@@ -346,6 +349,11 @@ async def run(request: SimuladoRequest, http_request: Request):
     started = time.perf_counter()
 
     async def events() -> AsyncIterator[str]:
+        with visitor.use(request.ai):
+            async for chunk in run_events():
+                yield chunk
+
+    async def run_events() -> AsyncIterator[str]:
         def emit(kind: str, data: dict) -> str:
             return f"data: {json.dumps({'type': kind, 't': round((time.perf_counter() - started) * 1000), 'data': data}, ensure_ascii=False)}\n\n"
 

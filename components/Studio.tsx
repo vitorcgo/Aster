@@ -14,6 +14,7 @@ import { addFact, loadMemory, saveMemory } from "@/lib/memory";
 import { forgetDrawn, waitForDrawn } from "@/lib/draw";
 import { rememberRun } from "@/lib/lab";
 import { applyEvent, eventDwell, lectureLabel, newTurn, type LectureSource, type Material, type PagePayload, type RunEvent, type Source, type TraceNode, type Turn } from "@/lib/aster";
+import { aiPayload } from "@/lib/ai";
 
 const SUGGESTIONS = [
   "Qual é o papel dos embeddings em um RAG?",
@@ -369,7 +370,7 @@ export function Studio({ active = true }: { active?: boolean }) {
       const response = await fetch("/api/tutor/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, context, memory: memoryRef.current }),
+        body: JSON.stringify({ question, context, memory: memoryRef.current, ai: aiPayload() }),
         signal: abort.signal,
       });
       if (!response.ok || !response.body) {

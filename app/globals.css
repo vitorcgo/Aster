@@ -1318,3 +1318,11 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .password-form { display: flex; flex-wrap: wrap; gap: 8px; }
 .password-form input { flex: 1 1 180px; }
 .sheet-ok { padding: 10px 14px; border-radius: 12px; background: var(--good-soft); border: 1px solid rgba(126, 224, 143, 0.4); color: var(--good); font-size: 14px; }
+
+/* painel: chaves do visitante e área do dono */
+.visitor-intro { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--lime-soft); border: 1px solid var(--lime-line); font-size: 14px; line-height: 1.45; color: var(--on-sky); }
+.visitor-intro svg { flex: none; margin-top: 2px; color: var(--lime); }
+.visitor-intro b { color: var(--lime); }
+.owner-link { align-self: center; display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--on-sky-3); font: inherit; font-size: 13px; cursor: pointer; }
+.owner-link:hover { color: var(--on-sky); background: var(--glass-tint); }
+.owner-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; }

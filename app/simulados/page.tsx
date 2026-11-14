@@ -12,6 +12,7 @@ import { TopBar } from "@/components/TopBar";
 import { lectureLabel } from "@/lib/aster";
 import { forgetDrawn, waitForDrawn } from "@/lib/draw";
 import { QUESTIONS, type Question } from "@/lib/questions";
+import { aiPayload } from "@/lib/ai";
 
 type Scope = "recentes" | "todas";
 type Mode = "treino" | "prova";
@@ -127,7 +128,7 @@ export default function Simulados() {
     })();
 
     try {
-      const response = await fetch("/api/simulado/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope, count }), signal: controller.signal });
+      const response = await fetch("/api/simulado/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope, count, ai: aiPayload() }), signal: controller.signal });
       if (!response.ok || !response.body) {
         const body = await response.json().catch(() => null) as { detail?: { message?: string } } | null;
         throw new Error(body?.detail?.message || "Não consegui falar com a API do Aster.");

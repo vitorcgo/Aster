@@ -253,6 +253,59 @@ class AgentTest(unittest.TestCase):
         web.assert_not_called()
         self.assertIn("Pesquisa fora da matéria", [event["data"]["message"] for event in events if event["type"] == "tool_error"])
 
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_visitor_key_is_used_only_for_their_question_and_never_saved(self):
+        hit = search("overfitting")[0]
+        used = []
+
+        def capture(spec, key, system, tools, prompt, thinking):
+            used.append((spec.provider, spec.model, key))
+            return MagicMock()
+
+        script = [turn(("buscar_nas_aulas", {"consulta": "overfitting"})), turn(("responder", {"blocos": [{"texto": hit.quote, "citacoes": [hit.id]}]}))]
+        body = {"question": "o que é overfitting?", "ai": {"keys": {"openai": "sk-do-visitante-123456"}, "chain": [{"provider": "openai", "model": "gpt-visitante"}]}}
+        with patch("api.main.make_session", side_effect=capture), patch("api.main.call_model", side_effect=script):
+            events = parse_events(self.client.post("/api/tutor/runs", json=body))
+        self.assertEqual(used, [("openai", "gpt-visitante", "sk-do-visitante-123456")])
+        self.assertEqual(events[-1]["data"]["model"], "gpt-visitante")
+        settings_file = os.environ["ASTER_SETTINGS"]
+        self.assertFalse(os.path.exists(settings_file) and "sk-do-visitante" in open(settings_file, encoding="utf-8").read())
+        # fora da consulta, a chave do visitante não vale mais
+        from api.main import provider_key
+        self.assertEqual(provider_key("openai"), "")
+
+    def test_visitor_quota_pause_does_not_pause_the_model_for_everyone(self):
+        from api import visitor
+        from api.main import ModelSpec, agent_models, block_model, paused_models
+        spec = ModelSpec("gemini", "primary")
+        with visitor.use(visitor.VisitorAI(keys={"gemini": "visitante-chave-1"})):
+            block_model(spec, 60)
+            self.assertEqual([item.model for item in agent_models()], ["backup"])
+        # o site (e os outros visitantes) continuam com o modelo
+        self.assertEqual([item.model for item in agent_models()], ["primary", "backup"])
+        self.assertFalse(any("visitante" in key for key in paused_models()))
+
+    def test_visitor_keys_reach_the_exam_threads(self):
+        from api import simulado, visitor
+        from api.main import provider_key
+        seen = []
+
+        def work(spec):
+            seen.append(provider_key("nvidia"))
+            return ["ok"]
+
+        with visitor.use(visitor.VisitorAI(keys={"nvidia": "nvapi-visitante-999"}, chain=[{"provider": "nvidia", "model": "m"}])):
+            self.assertEqual(simulado.race(work, 5)[0], ["ok"])
+        self.assertEqual(seen, ["nvapi-visitante-999"])
+
+    def test_visitor_can_list_and_test_models_with_their_own_key(self):
+        with patch("api.main.list_models", return_value=[{"id": "gpt-x", "name": "gpt-x"}]) as listing:
+            response = TestClient(app).post("/api/ai/models", json={"provider": "openai", "key": "sk-visitante-abc"})
+        self.assertEqual(response.json()["models"][0]["id"], "gpt-x")
+        listing.assert_called_once_with("openai", "sk-visitante-abc")
+        self.assertNotIn("sk-visitante-abc", response.text)
+        self.assertEqual(TestClient(app).post("/api/ai/models", json={"provider": "inventado", "key": "sk-visitante-abc"}).status_code, 404)
+
     def test_question_has_a_total_time_limit(self):
         with patch("api.main.AGENT_DEADLINE_SECONDS", 0), patch("api.main.call_model") as model:
             events = self.ask()
@@ -610,6 +663,12 @@ class SecurityTest(unittest.TestCase):
         wiki.assert_not_called()
         with patch.dict(os.environ, {"ASTER_WEB_GOOGLE": "0"}), patch("api.main.duckduckgo_search", side_effect=OSError), patch("api.main.wikipedia_search", return_value=found):
             self.assertEqual(main.web_search("overfitting")[0], "wikipedia")
+
+    def test_web_results_only_keep_http_links(self):
+        from api.main import safe_results
+        results = [{"title": "ok", "url": "https://www.ibm.com/x", "domain": "", "snippet": ""}, {"title": "xss", "url": "javascript:alert(1)", "domain": "", "snippet": ""},
+                   {"title": "dados", "url": "data:text/html,<script>", "domain": "", "snippet": ""}, {"title": "sem host", "url": "https://", "domain": "", "snippet": ""}]
+        self.assertEqual([(item["title"], item["domain"]) for item in safe_results(results)], [("ok", "ibm.com")])
 
     def test_masks_only_real_personal_data(self):
         text, found = security.mask_personal_data("cartão 4111 1111 1111 1111, fone (11) 98765-4321, Turing em 1950 e 2023, página 26")

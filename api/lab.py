@@ -4,14 +4,13 @@ from __future__ import annotations
 import math
 import re
 import unicodedata
-from collections import Counter
-from functools import lru_cache
+from collections import Counter, OrderedDict
 
 import pymupdf
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from api import main, security
+from api import main, security, visitor
 from api.eval_set import EVAL_SET
 
 router = APIRouter(prefix="/api/lab")
@@ -116,6 +115,7 @@ def lab_search(q: str = Query(min_length=1, max_length=500), limit: int = Query(
 
 class EmbedBody(BaseModel):
     q: str = Field(min_length=3, max_length=500)
+    ai: visitor.VisitorAI | None = None
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -148,16 +148,23 @@ def _project(vectors: list[list[float]]) -> list[tuple[float, float]]:
     return [(x / scale, y / scale) for x, y in coords]
 
 
-@lru_cache(maxsize=32)
-def _embed(texts: tuple[str, ...]) -> list[list[float]]:
+_embed_cache: "OrderedDict[tuple[str, ...], list[list[float]]]" = OrderedDict()
+
+
+def _embed(texts: tuple[str, ...], key: str) -> list[list[float]]:
+    """Vetores do Gemini. O cache é só pelo texto: a chave de quem pediu não fica guardada."""
+    if texts in _embed_cache:
+        _embed_cache.move_to_end(texts)
+        return _embed_cache[texts]
     from google import genai
 
-    key = main.provider_key("gemini")
-    if not key:
-        raise HTTPException(status_code=400, detail={"code": "no_key", "message": "Os embeddings usam a API do Gemini. Cadastre uma chave do Gemini em Modelos."})
     client = genai.Client(api_key=key, http_options={"retry_options": {"attempts": 1}, "timeout": 30000})
     response = client.models.embed_content(model=EMBED_MODEL, contents=list(texts))
-    return [list(item.values) for item in response.embeddings]
+    vectors = [list(item.values) for item in response.embeddings]
+    _embed_cache[texts] = vectors
+    while len(_embed_cache) > 32:
+        _embed_cache.popitem(last=False)
+    return vectors
 
 
 @router.post("/embeddings")
@@ -169,7 +176,11 @@ def embeddings(body: EmbedBody, request: Request):
         raise HTTPException(status_code=404, detail={"code": "no_candidates", "message": "A busca lexical não encontrou candidatos para essa pergunta."})
     texts = (body.q, *(row.item.quote for row in rows))
     try:
-        vectors = _embed(texts)
+        with visitor.use(body.ai):
+            key = main.provider_key("gemini")
+            if not key:
+                raise HTTPException(status_code=400, detail={"code": "no_key", "message": "Os embeddings usam o Gemini. Coloque uma chave do Gemini em Modelos de IA."})
+            vectors = _embed(texts, key)
     except HTTPException:
         raise
     except Exception as error:

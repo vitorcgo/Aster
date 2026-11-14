@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 from dotenv import load_dotenv
 from google.genai import errors as genai_errors
 
-from api import admin, security
+from api import admin, security, visitor
 from api.library import (  # noqa: F401  (reexportados para o Laboratório e os testes)
     Evidence,
     GLYPH_FIXES,
@@ -97,7 +97,11 @@ _model_blocked_until: dict[str, float] = {}
 
 
 def provider_key(provider: str) -> str:
-    """Chave salva pelo painel (cifrada em disco) tem prioridade; a variável de ambiente é só reserva."""
+    """Chave do visitante (se ele mandou as dele, só elas valem); senão a do dono do site, salva cifrada
+    pelo painel; a variável de ambiente é só reserva."""
+    own = visitor.key(provider)
+    if own is not None:
+        return own
     saved = admin.stored_key(provider)
     if saved:
         return saved
@@ -118,11 +122,20 @@ def default_chain() -> list[ModelSpec]:
 
 
 def configured_chain() -> list[ModelSpec]:
+    own = visitor.chain()
+    if own:
+        return [ModelSpec(provider, model) for provider, model in own]
+    if visitor.current() is not None:
+        # o visitante mandou chaves sem escolher modelos: a fila padrão, só com os provedores que ele tem
+        return [spec for spec in default_chain() if visitor.key(spec.provider)]
     saved = [ModelSpec(str(item["provider"]), str(item["model"])) for item in load_settings().get("chain", []) if isinstance(item, dict) and item.get("provider") in PROVIDERS and item.get("model")]
     return saved or default_chain()
 
 
 def blocked_key(spec: ModelSpec) -> str:
+    # a pausa por falta de cota é da chave, não do modelo: a cota de um visitante não pausa o modelo dos outros
+    if visitor.current() is not None:
+        return f"{spec.provider}:{spec.model}:{visitor.fingerprint(provider_key(spec.provider))}"
     return f"{spec.provider}:{spec.model}"
 
 
@@ -146,6 +159,8 @@ def agent_models() -> tuple[ModelSpec, ...]:
 def block_model(spec: ModelSpec, minutes: float = 10) -> None:
     until = time.time() + minutes * 60
     _model_blocked_until[blocked_key(spec)] = until
+    if visitor.current() is not None:
+        return  # pausas de chaves de visitantes ficam só na memória: não enchem o arquivo do servidor
     data = load_settings()
     saved = data.get("paused", {}) if isinstance(data.get("paused"), dict) else {}
     now = time.time()
@@ -338,7 +353,25 @@ def duckduckgo_search(query: str) -> list[dict]:
     return results
 
 
+def safe_results(results: list[dict]) -> list[dict]:
+    """Só links http(s) chegam ao navegador: uma URL javascript: vinda de um buscador viraria um link perigoso."""
+    from urllib.parse import urlparse
+
+    safe = []
+    for item in results:
+        url = str(item.get("url", "")).strip()
+        parsed = urlparse(url)
+        if parsed.scheme in ("http", "https") and parsed.netloc:
+            safe.append({**item, "url": url, "domain": _domain(url)})
+    return safe
+
+
 def web_search(query: str) -> tuple[str, list[dict]]:
+    provider, results = _web_search(query)
+    return provider, safe_results(results)
+
+
+def _web_search(query: str) -> tuple[str, list[dict]]:
     global _google_blocked_until
     if provider_key("gemini") and time.time() >= _google_blocked_until and admin.config("web_google"):
         try:
@@ -564,6 +597,8 @@ class AskRequest(BaseModel):
     context: list[ConversationTurn] = Field(default_factory=list, max_length=8)
     # fatos que o aluno contou em conversas anteriores; ficam guardados no navegador dele
     memory: list[str] = Field(default_factory=list, max_length=12)
+    # chaves e fila de modelos do visitante; valem só nesta consulta e nunca são gravadas
+    ai: visitor.VisitorAI | None = None
 
     @field_validator("memory")
     @classmethod
@@ -1101,6 +1136,49 @@ def post_provider_test(provider: str, body: TestBody, request: Request):
         return {"ok": False, "code": failure.code, "message": failure.message}
 
 
+ai_limiter = security.RateLimiter(20)
+
+
+class VisitorKeyBody(BaseModel):
+    provider: str
+    key: str = Field(min_length=8, max_length=400)
+
+
+class VisitorTestBody(VisitorKeyBody):
+    model: str = Field(min_length=1, max_length=160)
+
+
+def _visitor_call(request: Request, provider: str) -> None:
+    require_provider(provider)
+    wait = ai_limiter.check(security.client_ip(request))
+    if wait is not None:
+        raise HTTPException(status_code=429, detail={"code": "too_many_requests", "message": f"Muitos pedidos seguidos. Espere {wait} s."}, headers={"Retry-After": str(wait)})
+
+
+@app.post("/api/ai/models")
+def visitor_models(body: VisitorKeyBody, request: Request):
+    """Lista os modelos que a chave do visitante enxerga. A chave é usada só aqui e não é guardada."""
+    _visitor_call(request, body.provider)
+    try:
+        return {"models": list_models(body.provider, body.key.strip())}
+    except Exception as error:
+        failure = classify_generation_error(error)
+        # listar modelos não usa ferramentas: 400, 401 e 403 aqui querem dizer chave errada
+        if failure.code in ("invalid_request", "invalid_key", "access_denied"):
+            raise HTTPException(status_code=400, detail={"code": "invalid_key", "message": "A chave foi recusada pelo provedor. Confira se colou a chave inteira e se ela é deste provedor."}) from None
+        raise provider_failure(error) from None
+
+
+@app.post("/api/ai/test")
+def visitor_test(body: VisitorTestBody, request: Request):
+    _visitor_call(request, body.provider)
+    try:
+        return test_model(ModelSpec(body.provider, body.model), body.key.strip())
+    except Exception as error:
+        failure = classify_generation_error(error)
+        return {"ok": False, "code": failure.code, "message": failure.message}
+
+
 @app.get("/api/materials")
 def list_materials():
     return list(library().documents)
@@ -1125,23 +1203,33 @@ def get_page(document_id: str, page: int, query: str = ""):
 
 
 async def with_heartbeat(source: AsyncIterator[str], interval: float = 6.0) -> AsyncIterator[str]:
-    """Envia um comentário SSE enquanto o modelo pensa, para proxies não fecharem a conexão."""
-    iterator = source.__aiter__()
-    pending = asyncio.ensure_future(iterator.__anext__())
+    """Envia um comentário SSE enquanto o modelo pensa, para proxies não fecharem a conexão.
+    A consulta roda inteira numa tarefa só: assim o que ela liga no começo (as chaves do visitante,
+    num ContextVar) continua valendo até o fim."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=64)
+    done = object()
+
+    async def produce() -> None:
+        try:
+            async for chunk in source:
+                await queue.put(chunk)
+        finally:
+            await queue.put(done)
+
+    producer = asyncio.create_task(produce())
     try:
         while True:
-            done, _ = await asyncio.wait({pending}, timeout=interval)
-            if not done:
+            try:
+                chunk = await asyncio.wait_for(queue.get(), timeout=interval)
+            except asyncio.TimeoutError:
                 yield ": ping\n\n"
                 continue
-            try:
-                chunk = pending.result()
-            except StopAsyncIteration:
-                return
+            if chunk is done:
+                break
             yield chunk
-            pending = asyncio.ensure_future(iterator.__anext__())
+        await producer  # repassa um erro do produtor, se houver
     finally:
-        pending.cancel()
+        producer.cancel()
 
 
 @app.post("/api/tutor/runs")
@@ -1173,6 +1261,11 @@ async def run_tutor(request: AskRequest, http_request: Request):
     started = time.perf_counter()
 
     async def events():
+        with visitor.use(request.ai):
+            async for chunk in run_events():
+                yield chunk
+
+    async def run_events():
         seq = 0
 
         def emit(kind: str, data: dict | None = None) -> str:
