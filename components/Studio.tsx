@@ -398,8 +398,13 @@ export function Studio({ active = true }: { active?: boolean }) {
           enqueue(event, turnId, myToken);
         }
       }
-      // o Laboratório reaproveita esta consulta sem chamar o modelo de novo
-      rememberRun(question, turnsRef.current.find((turn) => turn.id === turnId)?.events ?? []);
+      // o Laboratório reaproveita esta consulta sem chamar o modelo de novo, mas só se ela foi uma pesquisa
+      // de verdade na matéria: cumprimento, recusa, conversa e falha não têm o que mostrar por dentro
+      const events = turnsRef.current.find((turn) => turn.id === turnId)?.events ?? [];
+      const started = events.find((event) => event.type === "run_started");
+      const answer = events.find((event) => event.type === "answer_ready");
+      const searched = events.some((event) => event.type === "search_results");
+      if (started && !started.data.light && answer && answer.data.kind !== "chat" && searched) rememberRun(question, events);
     } catch (error) {
       if (abort.signal.aborted) return;
       // se a resposta final já chegou, uma queda depois disso não importa

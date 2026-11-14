@@ -65,10 +65,19 @@ export default function Laboratorio() {
     window.history.replaceState(null, "", `/laboratorio?etapa=${id}`);
   };
 
-  const analyze = (event: FormEvent) => {
+  const [scopeNote, setScopeNote] = useState("");
+  const analyze = async (event: FormEvent) => {
     event.preventDefault();
     const text = draft.trim();
-    if (text.length >= 3) setQuestion(text);
+    if (text.length < 2) return;
+    setScopeNote("");
+    try {
+      const verdict = await labGet<{ ok: boolean; message?: string }>(`/api/lab/scope?q=${encodeURIComponent(text)}`);
+      if (!verdict.ok) { setScopeNote(verdict.message ?? "Essa pergunta foge da matéria."); return; }
+    } catch {
+      // sem a checagem, segue com a pergunta: o próprio agente ainda barra o que foge da matéria
+    }
+    setQuestion(text);
   };
 
   // roda a pergunta no agente de verdade e guarda as linhas cruas do SSE
@@ -134,10 +143,17 @@ export default function Laboratorio() {
         <h1 className="visually-hidden">Laboratório: por dentro do Aster</h1>
         <form className="xray-question" onSubmit={analyze}>
           <label htmlFor="xray-q">Pergunta em análise</label>
-          <input id="xray-q" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={500} placeholder="Digite uma pergunta para ver o caminho dela no Aster" />
+          <input id="xray-q" value={draft} onChange={(event) => { setDraft(event.target.value); setScopeNote(""); }} aria-invalid={!!scopeNote} aria-describedby={scopeNote ? "xray-scope" : undefined} maxLength={500} placeholder="Digite uma pergunta para ver o caminho dela no Aster" />
           <button type="submit" className="primary-button small" disabled={draft.trim().length < 3 || draft.trim() === question}>Analisar</button>
           <Link className="secondary-button" href="/">Perguntar no Estudar</Link>
         </form>
+        <AnimatePresence>
+          {scopeNote && (
+            <motion.p id="xray-scope" className="xray-scope" role="alert" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2 }}>
+              <Icon name="alert" size={16} />{scopeNote}
+            </motion.p>
+          )}
+        </AnimatePresence>
 
         <nav className="xray-track" aria-label="Etapas do caminho da pergunta">
           {STAGES.map((item, position) => (

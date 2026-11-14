@@ -209,6 +209,21 @@ def relevance(candidates: int = Query(15, ge=5, le=30)):
 
 # ---------------------------------------------------------------- 8. avaliação (Aula 2, p. 31-33)
 
+@router.get("/scope")
+def scope(q: str = ""):
+    """O Laboratório só analisa perguntas da matéria, pelo mesmo portão do Estudar."""
+    question = " ".join(q.split())[:500]
+    if len(question) < 2:
+        return {"ok": False, "reason": "short", "message": "Digite uma pergunta sobre a matéria."}
+    if main.OVERRIDE.search(question):
+        return {"ok": False, "reason": "override", "message": "Essa pergunta tenta mudar as regras do Aster. Use uma dúvida da matéria."}
+    if main.is_small_talk(question):
+        return {"ok": False, "reason": "small_talk", "message": "Isso é uma conversa, não uma dúvida. O Laboratório mostra o caminho de uma pergunta sobre a matéria."}
+    if not main.in_scope(main.AskRequest(question=question)):
+        return {"ok": False, "reason": "scope", "message": "Essa pergunta foge da matéria das aulas, então não há caminho para mostrar. Tente algo dos slides."}
+    return {"ok": True}
+
+
 @router.get("/evaluation")
 def evaluation():
     results = []

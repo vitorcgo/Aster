@@ -1284,3 +1284,6 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .memory-panel li button:hover { background: var(--bad-soft); color: var(--bad); }
 .memory-panel .link-button { align-self: flex-start; font-size: 13px; }
 .badge-memory { background: var(--lime-soft); color: var(--lime); border-color: var(--lime-line); }
+
+.xray-scope { display: flex; align-items: center; gap: 8px; margin: -6px 0 12px; padding: 10px 14px; border-radius: 12px; background: rgba(255, 214, 107, 0.13); border: 1px solid rgba(255, 214, 107, 0.4); font-size: 14.5px; color: var(--warn); }
+.xray-scope svg { flex: none; }

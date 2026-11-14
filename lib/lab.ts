@@ -44,7 +44,10 @@ export function rememberRun(question: string, events: RunEvent[]) {
 
 export function recallQuestion(): string {
   try {
-    return sessionStorage.getItem(QUESTION_KEY) || DEFAULT_QUESTION;
+    // só vale a pergunta que veio com a consulta guardada junto; sozinha, pode ser de uma versão antiga
+    const run = recallRun();
+    const question = sessionStorage.getItem(QUESTION_KEY);
+    return question && run?.question === question && run.events.some((event) => event.type === "search_results") ? question : DEFAULT_QUESTION;
   } catch {
     return DEFAULT_QUESTION;
   }
