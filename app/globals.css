@@ -1385,3 +1385,11 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .landscape-depth.is-near { transform: translate3d(calc(var(--px, 0) * -24px), calc(var(--py, 0) * -14px), 0); }
 .landscape.is-dim .landscape-depth { transform: none; }
 
+/* simulado: correção à mão nas letras */
+.quiz-key { position: relative; }
+.pen-mark { position: absolute; inset: -8px; width: calc(100% + 16px); height: calc(100% + 16px); overflow: visible; pointer-events: none; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.pen-circle { stroke: var(--good); stroke-width: 2.6; }
+.pen-strike { inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); stroke: var(--on-sky); stroke-width: 3.4; filter: drop-shadow(0 1px 1px rgba(40, 6, 2, 0.6)); }
+.score-ring strong > span { font-variant-numeric: tabular-nums; }
+.result-buddy { position: relative; }
+.result-burst { top: 50%; }

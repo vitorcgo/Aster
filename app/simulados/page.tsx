@@ -13,6 +13,7 @@ import { lectureLabel } from "@/lib/aster";
 import { forgetDrawn, waitForDrawn } from "@/lib/draw";
 import { QUESTIONS, type Question } from "@/lib/questions";
 import { aiPayload } from "@/lib/ai";
+import { ease } from "@/lib/motion";
 
 type Scope = "recentes" | "todas";
 type Mode = "treino" | "prova";
@@ -23,8 +24,42 @@ type Item = Pick<Question, "id" | "prompt" | "options" | "answer" | "source"> & 
 type Options = { recentes: { id: string; subject: string }[]; todas: { id: string; subject: string }[]; ia: boolean; revisao?: number };
 
 const KEYS = ["A", "B", "C", "D", "E"];
-const ease = [0.23, 1, 0.32, 1] as const;
 const BURST = ["+", "*", "·", "+", "*", ":", "+", "·", "*", "+", "·", "*"];
+
+/** Correção à mão, como a do professor na prova: um círculo na certa e um risco na errada que você marcou. */
+function PenMark({ kind }: { kind: "circle" | "strike" }) {
+  return (
+    <svg className={`pen-mark pen-${kind}`} viewBox="0 0 48 48" aria-hidden="true">
+      {kind === "circle" ? (
+        <motion.path d="M26 4C13 3 4 12 5 25c1 12 11 19 22 18 11-1 17-10 16-21C42 11 33 4 22 6" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.5, ease, delay: 0.15 }} />
+      ) : (
+        <>
+          <motion.path d="M8 9c10 9 22 20 32 30" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.22, ease }} />
+          <motion.path d="M39 8C29 18 18 28 9 40" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.22, ease, delay: 0.16 }} />
+        </>
+      )}
+    </svg>
+  );
+}
+
+/** A nota sobe de 0 até o resultado no mesmo ritmo do anel. */
+function CountUp({ value, delay = 200, duration = 1100 }: { value: number; delay?: number; duration?: number }) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setShown(value); return; }
+    let frame = 0;
+    const started = performance.now() + delay;
+    const tick = (now: number) => {
+      const progress = Math.min(1, Math.max(0, (now - started) / duration));
+      // mesma curva do anel (sai rápido, assenta devagar)
+      setShown(Math.round(value * (1 - Math.pow(1 - progress, 3))));
+      if (progress < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value, delay, duration]);
+  return <>{shown}</>;
+}
 
 function shuffle<T>(list: T[]) {
   const copy = [...list];
@@ -419,7 +454,7 @@ export default function Simulados() {
                       transition={{ delay: checked ? 0 : 0.08 + position * 0.05, duration: 0.3, ease }}
                       whileTap={checked ? undefined : { scale: 0.985 }}
                     >
-                      <span className="quiz-key">{KEYS[position]}</span>
+                      <span className="quiz-key">{KEYS[position]}{right && <PenMark kind="circle" />}{wrong && <PenMark kind="strike" />}</span>
                       <span className="quiz-option-text">
                         {option}
                         {comment && <motion.small initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} transition={{ duration: 0.3, delay: 0.1 + position * 0.04 }}>{comment}</motion.small>}
@@ -458,7 +493,7 @@ export default function Simulados() {
                     <circle className="track-ring" cx="75" cy="75" r="62" />
                     <motion.circle className="value-ring" cx="75" cy="75" r="62" strokeDasharray={circumference} initial={{ strokeDashoffset: circumference }} animate={{ strokeDashoffset: circumference * (1 - percent) }} transition={{ duration: 1.1, ease, delay: 0.2 }} />
                   </svg>
-                  <strong>{score}/{deck.length}<small>acertos</small></strong>
+                  <strong><span><CountUp value={score} />/{deck.length}</span><small>acertos</small></strong>
                 </div>
                 <div>
                   <h2 id="result-title">{percent >= 0.8 ? "Mandou muito bem." : percent >= 0.5 ? "Bom caminho, falta pouco." : "Vale revisar com calma."}</h2>
@@ -468,7 +503,19 @@ export default function Simulados() {
                     <button type="button" className="secondary-button" onClick={leave}>Mudar opções</button>
                   </div>
                 </div>
-                <motion.div initial={{ scale: 0.5, rotate: -12 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 300, damping: 12, delay: 0.3 }}><Mascot mood={percent >= 0.6 ? "success" : "idle"} size={110} /></motion.div>
+                <motion.div className="result-buddy" initial={{ scale: 0.5, rotate: -12 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 300, damping: 12, delay: 0.3 }}>
+                  <Mascot mood={percent >= 0.6 ? "success" : "idle"} size={110} />
+                  {/* nota alta: a mesma explosão de glifos do acerto, maior, quando o anel termina de encher */}
+                  {percent >= 0.8 && (
+                    <span className="quiz-burst result-burst" aria-hidden="true">
+                      {[...BURST, ...BURST].map((glyph, position, all) => {
+                        const angle = (position / all.length) * Math.PI * 2;
+                        const reach = position % 2 ? 96 : 70;
+                        return <motion.i key={position} initial={{ x: 0, y: 0, opacity: 0, scale: 0.6 }} animate={{ x: Math.cos(angle) * reach, y: Math.sin(angle) * reach, opacity: [0, 1, 0], scale: 1.3 }} transition={{ duration: 1, ease, delay: 1.25 + position * 0.01 }}>{glyph}</motion.i>;
+                      })}
+                    </span>
+                  )}
+                </motion.div>
               </section>
               <ol className="review-list">
                 {deck.map((item, position) => {
