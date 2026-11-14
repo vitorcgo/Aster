@@ -38,13 +38,15 @@ HAS_MATERIALS = bool(material_paths())
 class AgentTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
-        self.client = TestClient(app)
-        security.ask_limiter.reset()
+        self.client = TestClient(app, headers={"X-Aster-Admin": "1"})
+        security.reset_limits()
         self.configured = [
             patch("api.main.gemini_api_key", return_value="configured"),
             patch("api.main.gemini_models", return_value=("primary", "backup")),
             patch.dict(os.environ, {"GEMINI_LAST_RESORT": "", "ASTER_SETTINGS": os.path.join(self.folder.name, "settings.json"), "OPENAI_API_KEY": "", "NVIDIA_API_KEY": ""}),
             patch.dict("api.main._model_blocked_until", {}, clear=True),
+            # a administração tem testes próprios; aqui o painel já está liberado
+            patch("api.admin.require_admin"),
             patch("api.main.web_search", return_value=("wikipedia", [{"title": "RAG — Wikipédia", "url": "https://pt.wikipedia.org/wiki/RAG", "domain": "pt.wikipedia.org", "snippet": "Técnica de IA."}])),
         ]
         for item in self.configured:
@@ -441,14 +443,121 @@ class LabTest(unittest.TestCase):
         self.assertIn("buscar_nas_aulas", [tool["name"] for tool in data["tools"]])
 
 
-class LocalOnlyTest(unittest.TestCase):
-    def test_settings_changes_refuse_requests_from_the_network(self):
-        client = TestClient(app)
-        with patch.dict(os.environ, {"ASTER_SETTINGS": os.path.join(tempfile.gettempdir(), "aster-settings-test.json")}):
-            response = client.put("/api/settings/chain", json={"chain": []}, headers={"X-Forwarded-For": "192.168.0.9"})
-            self.assertEqual(response.status_code, 403)
-            self.assertEqual(response.json()["detail"]["code"], "local_only")
-            self.assertEqual(client.put("/api/settings/chain", json={"chain": []}).status_code, 200)
+class AdminTest(unittest.TestCase):
+    """Administração pelo navegador: senha, sessão, CSRF, chaves cifradas e configurações."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.env = patch.dict(os.environ, {"ASTER_SETTINGS": os.path.join(self.folder.name, "settings.json"), "ASTER_SECRET": "", "GEMINI_API_KEY": "", "OPENAI_API_KEY": "", "NVIDIA_API_KEY": ""})
+        self.env.start()
+        security.reset_limits()
+        from api import admin
+        admin.login_limiter.reset()
+        admin._setup_code = None
+        self.admin = admin
+        self.client = TestClient(app, headers={"X-Aster-Admin": "1"})
+        self.remote = {"X-Forwarded-For": "203.0.113.9"}
+
+    def tearDown(self):
+        self.env.stop()
+        self.folder.cleanup()
+
+    def setup(self, password="uma frase longa 42", client=None):
+        return (client or self.client).post("/api/admin/setup", json={"password": password, "code": self.admin.setup_code() or ""})
+
+    def test_without_password_nobody_configures_not_even_from_localhost(self):
+        for headers in ({}, self.remote, {"X-Forwarded-For": "127.0.0.1"}):
+            refused = self.client.put("/api/settings/chain", json={"chain": []}, headers=headers)
+            self.assertEqual((refused.status_code, refused.json()["detail"]["code"]), (401, "setup_required"))
+        status = self.client.get("/api/admin/status").json()
+        self.assertEqual((status["configured"], status["needs_code"]), (False, True))
+        # o código fica num arquivo do servidor, para quem tem acesso a ele
+        code_file = os.path.join(self.folder.name, "codigo-de-configuracao.txt")
+        self.assertEqual(open(code_file, encoding="utf-8").read().strip(), self.admin.setup_code())
+        wrong = self.client.post("/api/admin/setup", json={"password": "uma frase longa 42", "code": "ERRADO"})
+        self.assertEqual(wrong.json()["detail"]["code"], "bad_setup_code")
+        self.assertEqual(self.setup().status_code, 200)
+        self.assertFalse(os.path.exists(code_file))
+        self.assertEqual(self.client.put("/api/settings/chain", json={"chain": []}).status_code, 200)
+
+    def test_password_session_and_logout(self):
+        self.assertEqual(self.setup("1234567890").json()["detail"]["code"], "weak_password")
+        created = self.setup()
+        self.assertEqual(created.status_code, 200)
+        cookie = created.headers["set-cookie"].lower()
+        self.assertIn("httponly", cookie)
+        self.assertIn("samesite=strict", cookie)
+        # o cookie do setup já é uma sessão: mudar a fila funciona
+        self.assertEqual(self.client.put("/api/settings/chain", json={"chain": []}).status_code, 200)
+        self.client.post("/api/admin/logout")
+        anonymous = TestClient(app, headers={"X-Aster-Admin": "1"})
+        self.assertEqual(anonymous.put("/api/settings/chain", json={"chain": []}).status_code, 401)
+        self.assertEqual(anonymous.get("/api/settings").status_code, 401)
+        self.assertEqual(anonymous.post("/api/admin/login", json={"password": "errada"}).status_code, 401)
+        self.assertEqual(anonymous.post("/api/admin/login", json={"password": "uma frase longa 42"}).status_code, 200)
+        self.assertEqual(anonymous.get("/api/settings").status_code, 200)
+        # a senha nunca fica em texto puro
+        self.assertNotIn("uma frase longa 42", open(os.environ["ASTER_SETTINGS"], encoding="utf-8").read())
+
+    def test_login_attempts_are_limited(self):
+        self.setup()
+        self.admin.login_limiter.reset()
+        stranger = TestClient(app, headers={"X-Aster-Admin": "1"})
+        with patch("api.admin.time.sleep"):
+            codes = [stranger.post("/api/admin/login", json={"password": f"chute {n}"}).status_code for n in range(6)]
+        self.assertEqual(codes, [401] * 5 + [429])
+
+    def test_changes_without_the_panel_header_or_from_another_site_are_refused(self):
+        self.setup()
+        bare = TestClient(app)
+        self.assertEqual(bare.put("/api/settings/chain", json={"chain": []}).json()["detail"]["code"], "csrf")
+        evil = self.client.put("/api/settings/chain", json={"chain": []}, headers={"Origin": "https://site-malicioso.com"})
+        self.assertEqual(evil.json()["detail"]["code"], "csrf")
+        self.assertEqual(self.client.put("/api/settings/chain", json={"chain": []}, headers={"Origin": "http://testserver"}).status_code, 200)
+
+    def test_keys_are_encrypted_on_disk(self):
+        self.setup()
+        self.client.put("/api/settings/keys/nvidia", json={"key": "nvapi-abcdefghijklmnop"})
+        raw = open(os.environ["ASTER_SETTINGS"], encoding="utf-8").read()
+        self.assertNotIn("abcdefghijklmnop", raw)
+        self.assertIn("enc:", raw)
+        from api.main import provider_key
+        self.assertEqual(provider_key("nvidia"), "nvapi-abcdefghijklmnop")
+        # chave antiga em texto puro é cifrada na migração
+        from api.providers import load_settings, save_settings
+        data = load_settings()
+        data["keys"]["openai"] = "sk-antiga-em-texto-puro"
+        save_settings(data)
+        self.assertEqual(self.admin.migrate_plain_keys(), 1)
+        self.assertNotIn("sk-antiga-em-texto-puro", open(os.environ["ASTER_SETTINGS"], encoding="utf-8").read())
+        self.assertEqual(provider_key("openai"), "sk-antiga-em-texto-puro")
+
+    def test_settings_from_the_panel_replace_the_env(self):
+        self.setup()
+        with patch.dict(os.environ, {"ASTER_PERGUNTAS_POR_MINUTO": "3"}):
+            self.assertEqual(self.admin.config("perguntas_por_minuto"), 3)
+            saved = self.client.put("/api/admin/config", json={"values": {"perguntas_por_minuto": 7, "tempo_maximo": 9999, "raciocinio": "turbo", "desconhecida": 1}})
+            values = {row["name"]: row["value"] for row in saved.json()["config"]}
+            self.assertEqual((values["perguntas_por_minuto"], values["tempo_maximo"], values["raciocinio"]), (7, 300, "low"))
+            self.assertEqual(security.ask_limiter.limit, 7)
+        self.client.put("/api/admin/config", json={"values": {"perguntas_por_minuto": 12}})
+
+    def test_spoofed_forwarded_for_does_not_dodge_the_limit(self):
+        with patch.object(security.ask_limiter, "limit", 2), patch("api.main.material_paths", return_value={}):
+            codes = [self.client.post("/api/tutor/runs", json={"question": "o que é RAG?"}, headers={"X-Forwarded-For": f"10.0.0.{n}, 198.51.100.7"}).status_code for n in range(3)]
+        self.assertEqual(codes, [200, 200, 429])
+
+    def test_model_listing_and_tests_need_the_admin(self):
+        self.setup()
+        anonymous = TestClient(app, headers={"X-Aster-Admin": "1"})
+        self.assertEqual(anonymous.get("/api/providers/gemini/models").status_code, 401)
+        self.assertEqual(anonymous.post("/api/providers/gemini/test", json={"model": "x"}).status_code, 401)
+
+    def test_security_headers(self):
+        response = self.client.get("/api/health")
+        self.assertEqual(response.headers["x-content-type-options"], "nosniff")
+        self.assertEqual(response.headers["x-frame-options"], "DENY")
+        self.assertEqual(self.client.get("/api/admin/status").headers["cache-control"], "no-store")
 
 
 @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
@@ -465,10 +574,10 @@ class RelevanceTest(unittest.TestCase):
 class SecurityTest(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
-        security.ask_limiter.reset()
+        security.reset_limits()
 
     def tearDown(self):
-        security.ask_limiter.reset()
+        security.reset_limits()
 
     def test_web_query_drops_quotes_and_filler(self):
         from api.main import web_query
@@ -492,7 +601,7 @@ class SecurityTest(unittest.TestCase):
         self.assertEqual(security.mask_personal_data("Recall@3 de 0,654 na aula 2")[1], [])
 
     def test_question_rate_limit(self):
-        with patch.object(security.ask_limiter, "per_minute", 2), patch("api.main.material_paths", return_value={}):
+        with patch.object(security.ask_limiter, "limit", 2), patch("api.main.material_paths", return_value={}):
             codes = [self.client.post("/api/tutor/runs", json={"question": "o que é RAG?"}).status_code for _ in range(3)]
             limited = self.client.post("/api/tutor/runs", json={"question": "o que é RAG?"})
         self.assertEqual(codes, [200, 200, 429])
@@ -513,7 +622,7 @@ class SecurityTest(unittest.TestCase):
 class SimuladoTest(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
-        security.ask_limiter.reset()
+        security.reset_limits()
 
     def entry(self, **changes):
         base = {"numero": 1, "enunciado": "Uma equipe avalia um agente de IA em produção e precisa decidir o próximo passo. O que fazer?",

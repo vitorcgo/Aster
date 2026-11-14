@@ -11,6 +11,8 @@
 node_modules/
 /data/materials/
 /data/settings.json
+/data/secret.key
+/data/codigo-de-configuracao.txt
 /data/settings.tmp
 /*.pdf
 __pycache__/

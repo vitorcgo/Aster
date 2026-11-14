@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 from dotenv import load_dotenv
 from google.genai import errors as genai_errors
 
-from api import security
+from api import admin, security
 from api.library import (  # noqa: F401  (reexportados para o Laboratório e os testes)
     Evidence,
     GLYPH_FIXES,
@@ -68,8 +68,13 @@ load_dotenv(ROOT / ".env", override=False)
 
 MAX_AGENT_STEPS = 8
 MAX_WEB_SEARCHES = 3
-# tempo máximo de uma pergunta, somando todos os passos e modelos; sem isso um modelo lento travava minutos
-AGENT_DEADLINE_SECONDS = float(os.getenv("ASTER_TEMPO_MAXIMO", "90"))
+# tempo máximo de uma pergunta, somando todos os passos e modelos; sem isso um modelo lento travava minutos.
+# None = o valor do painel do administrador (os testes trocam por um número fixo)
+AGENT_DEADLINE_SECONDS: float | None = None
+
+
+def deadline_seconds() -> float:
+    return float(AGENT_DEADLINE_SECONDS if AGENT_DEADLINE_SECONDS is not None else admin.config("tempo_maximo"))
 
 
 # ---------------------------------------------------------------- configuração
@@ -93,8 +98,8 @@ _model_blocked_until: dict[str, float] = {}
 
 
 def provider_key(provider: str) -> str:
-    """Chave salva pela página tem prioridade; depois vem a variável de ambiente."""
-    saved = str(load_settings().get("keys", {}).get(provider, "")).strip()
+    """Chave salva pelo painel (cifrada em disco) tem prioridade; a variável de ambiente é só reserva."""
+    saved = admin.stored_key(provider)
     if saved:
         return saved
     if provider == "gemini":
@@ -104,7 +109,7 @@ def provider_key(provider: str) -> str:
 
 
 def key_source(provider: str) -> str | None:
-    if str(load_settings().get("keys", {}).get(provider, "")).strip():
+    if admin.stored_key(provider):
         return "page"
     return "env" if provider_key(provider) else None
 
@@ -162,8 +167,7 @@ def unpause(match) -> None:
 
 
 def thinking_level() -> str:
-    value = os.getenv("GEMINI_THINKING", "").strip().lower()
-    return value if value in {"minimal", "low", "medium", "high"} else "low"
+    return admin.config("raciocinio")
 
 
 # ---------------------------------------------------------------- erros
@@ -337,7 +341,7 @@ def duckduckgo_search(query: str) -> list[dict]:
 
 def web_search(query: str) -> tuple[str, list[dict]]:
     global _google_blocked_until
-    if provider_key("gemini") and time.time() >= _google_blocked_until and os.getenv("ASTER_WEB_GOOGLE", "1") != "0":
+    if provider_key("gemini") and time.time() >= _google_blocked_until and admin.config("web_google"):
         try:
             results = google_web_search(query)
             if results:
@@ -346,7 +350,7 @@ def web_search(query: str) -> tuple[str, list[dict]]:
             if isinstance(error, genai_errors.APIError) and error.code in (403, 429) or "429" in str(error):
                 _google_blocked_until = time.time() + 15 * 60
     # sem Google: DuckDuckGo traz a internet toda; a Wikipédia fica de reserva
-    if os.getenv("ASTER_WEB_DUCKDUCKGO", "1") != "0":
+    if admin.config("web_duckduckgo"):
         try:
             results = duckduckgo_search(query)
             if results:
@@ -712,7 +716,8 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
     models = agent_models()
     chain = configured_chain()
     preferred = chain[0] if chain else None
-    deadline = time.monotonic() + AGENT_DEADLINE_SECONDS
+    limit_seconds = deadline_seconds()
+    deadline = time.monotonic() + limit_seconds
     agent = Agent()
     for model_index, spec in enumerate(models):
         model = spec.model
@@ -729,13 +734,13 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
             yield emit("agent_thinking", {"step": step + 1, "model": model, "provider": spec.provider})
             remaining = deadline - time.monotonic()
             if remaining <= 1:
-                yield emit("run_failed", {"code": "timeout", "message": f"A pesquisa passou de {AGENT_DEADLINE_SECONDS:.0f} s e foi interrompida. Tente uma pergunta mais direta."})
+                yield emit("run_failed", {"code": "timeout", "message": f"A pesquisa passou de {limit_seconds:.0f} s e foi interrompida. Tente uma pergunta mais direta."})
                 return
             try:
                 # a thread do provedor não pode ser cancelada, mas paramos de esperar por ela no limite
                 turn = await asyncio.wait_for(asyncio.to_thread(call_model, model, session, force_final or remaining < 20), timeout=remaining)
             except asyncio.TimeoutError:
-                yield emit("run_failed", {"code": "timeout", "message": f"O modelo {model} não respondeu dentro de {AGENT_DEADLINE_SECONDS:.0f} s. Tente de novo."})
+                yield emit("run_failed", {"code": "timeout", "message": f"O modelo {model} não respondeu dentro de {limit_seconds:.0f} s. Tente de novo."})
                 return
             except Exception as error:
                 failure = classify_generation_error(error)
@@ -923,6 +928,9 @@ async def run_local(request: AskRequest, emit) -> AsyncIterator[str]:
 async def lifespan(_app: FastAPI):
     # Ler os PDFs leva alguns segundos; fazemos isso antes da primeira pergunta.
     threading.Thread(target=library, name="aster-index", daemon=True).start()
+    admin.migrate_plain_keys()
+    security.apply_limits()
+    admin.setup_code()
     yield
 
 
@@ -983,68 +991,44 @@ def settings_view() -> dict:
     return {"providers": providers, "chain": chain, "custom_chain": bool(saved.get("chain")), "default_chain": [spec.public() for spec in default_chain()]}
 
 
-LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
-
-
-def is_local(host: str) -> bool:
-    host = host.strip().lower()
-    return host in LOCAL_HOSTS or host.startswith("127.") or host.startswith("::ffff:127.")
-
-
-def require_local(request: Request) -> None:
-    """Chaves e fila só mudam no próprio computador.
-    Atenção: o rewrite do Next não repassa o IP de quem acessou, então isto só protege a API
-    quando ela é exposta direto. A proteção real é o `npm run dev` escutar apenas 127.0.0.1."""
-    hosts = [part for part in request.headers.get("x-forwarded-for", "").split(",") if part.strip()]
-    if request.client:
-        hosts.append(request.client.host)
-    if not all(is_local(host) for host in hosts):
-        raise HTTPException(status_code=403, detail={"code": "local_only", "message": "Chaves e fila de modelos só podem ser alteradas no computador onde o Aster está rodando."})
-
-
 @app.get("/api/settings")
-def get_settings():
+def get_settings(request: Request):
+    admin.require_admin(request)
     return settings_view()
 
 
 @app.put("/api/settings/keys/{provider}")
 def put_key(provider: str, body: KeyBody, request: Request):
-    require_local(request)
+    admin.require_admin(request)
     require_provider(provider)
-    data = load_settings()
-    data.setdefault("keys", {})[provider] = body.key.strip()
-    save_settings(data)
+    admin.store_key(provider, body.key.strip())
     unpause(lambda key: key.startswith(f"{provider}:"))
     return settings_view()
 
 
 @app.delete("/api/settings/keys/{provider}")
 def delete_key(provider: str, request: Request):
-    require_local(request)
+    admin.require_admin(request)
     require_provider(provider)
-    data = load_settings()
-    data.get("keys", {}).pop(provider, None)
-    save_settings(data)
+    admin.store_key(provider, None)
     return settings_view()
 
 
 @app.post("/api/settings/keys/{provider}/import")
 def import_env_key(provider: str, request: Request):
     """Copia a chave do .env para o armazenamento do painel, para gerenciar tudo pela página."""
-    require_local(request)
+    admin.require_admin(request)
     require_provider(provider)
     env = gemini_api_key() if provider == "gemini" else os.getenv(PROVIDERS[provider]["env"], "").strip()
     if not env:
         raise HTTPException(status_code=400, detail={"code": "no_env_key", "message": "Não há chave deste provedor no arquivo .env."})
-    data = load_settings()
-    data.setdefault("keys", {})[provider] = env
-    save_settings(data)
+    admin.store_key(provider, env)
     return settings_view()
 
 
 @app.put("/api/settings/chain")
 def put_chain(body: ChainBody, request: Request):
-    require_local(request)
+    admin.require_admin(request)
     for item in body.chain:
         require_provider(item.provider)
     data = load_settings()
@@ -1062,7 +1046,9 @@ def provider_failure(error: Exception) -> HTTPException:
 
 
 @app.get("/api/providers/{provider}/models")
-def get_provider_models(provider: str):
+def get_provider_models(provider: str, request: Request):
+    # listar e testar modelos gasta a chave do dono: só o administrador
+    admin.require_admin(request)
     require_provider(provider)
     key = provider_key(provider)
     if not key:
@@ -1074,7 +1060,8 @@ def get_provider_models(provider: str):
 
 
 @app.post("/api/providers/{provider}/test")
-def post_provider_test(provider: str, body: TestBody):
+def post_provider_test(provider: str, body: TestBody, request: Request):
+    admin.require_admin(request)
     require_provider(provider)
     key = provider_key(provider)
     if not key:
@@ -1195,6 +1182,7 @@ async def run_tutor(request: AskRequest, http_request: Request):
 from api.lab import router as lab_router  # noqa: E402
 
 app.include_router(lab_router)
+app.include_router(admin.router)
 
 from api.simulado import router as simulado_router  # noqa: E402
 

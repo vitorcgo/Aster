@@ -18,35 +18,51 @@ LOOPBACK = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
 def client_ip(request: Request) -> str:
-    """IP de quem perguntou. O X-Forwarded-For só vale quando quem repassa é o próprio computador (o Next)."""
+    """IP de quem perguntou.
+    Só confia no X-Forwarded-For quando quem repassa é o próprio servidor (o Next na mesma máquina), e usa a
+    última entrada: é a que o proxy acrescentou. As anteriores vêm do visitante e podem ser inventadas."""
     direct = request.client.host if request.client else "desconhecido"
-    if direct in LOOPBACK:
-        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        if forwarded:
-            return forwarded
+    if direct in LOOPBACK or direct.startswith("127.") or direct.startswith("::ffff:127."):
+        hops = [part.strip() for part in request.headers.get("x-forwarded-for", "").split(",") if part.strip()]
+        if hops:
+            return hops[-1]
     return direct
 
 
 class RateLimiter:
-    """Janela deslizante de 60 s por IP."""
+    """Janela deslizante por chave (normalmente o IP)."""
 
-    def __init__(self, per_minute: int) -> None:
-        self.per_minute = per_minute
+    def __init__(self, limit: int, window: float = 60) -> None:
+        self.limit = limit
+        self.window = window
         self._hits: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
 
+    # nome antigo, mantido para quem ajusta o limite por minuto
+    @property
+    def per_minute(self) -> int:
+        return self.limit
+
+    @per_minute.setter
+    def per_minute(self, value: int) -> None:
+        self.limit = value
+
     def check(self, key: str) -> int | None:
         """Registra a chamada; devolve em quantos segundos libera quando passou do limite."""
-        if self.per_minute <= 0:
+        if self.limit <= 0:
             return None
         now = time.monotonic()
         with self._lock:
             hits = self._hits.setdefault(key, deque())
-            while hits and now - hits[0] >= 60:
+            while hits and now - hits[0] >= self.window:
                 hits.popleft()
-            if len(hits) >= self.per_minute:
-                return max(1, int(60 - (now - hits[0])) + 1)
+            if len(hits) >= self.limit:
+                return max(1, int(self.window - (now - hits[0])) + 1)
             hits.append(now)
+            # não deixa a tabela crescer sem fim com IPs que já sumiram
+            if len(self._hits) > 5000:
+                for stale in [ip for ip, values in self._hits.items() if not values or now - values[-1] >= self.window][:2500]:
+                    self._hits.pop(stale, None)
             return None
 
     def reset(self) -> None:
@@ -55,16 +71,36 @@ class RateLimiter:
 
 
 ask_limiter = RateLimiter(int(os.getenv("ASTER_PERGUNTAS_POR_MINUTO", "12")))
+day_limiter = RateLimiter(80, window=24 * 3600)
+total_limiter = RateLimiter(1500, window=24 * 3600)
+
+
+def apply_limits() -> None:
+    """Lê os limites do painel do administrador (ou do .env, ou o padrão)."""
+    from api.admin import config  # importa aqui: admin também usa este módulo
+
+    ask_limiter.limit = config("perguntas_por_minuto")
+    day_limiter.limit = config("perguntas_por_dia")
+    total_limiter.limit = config("perguntas_por_dia_total")
 
 
 def limit_questions(request: Request) -> None:
-    wait = ask_limiter.check(client_ip(request))
+    """Cada pergunta (e cada prova) gasta a chave de IA do dono do site: limites por minuto, por dia e no total."""
+    ip = client_ip(request)
+    wait = ask_limiter.check(ip)
     if wait is not None:
-        raise HTTPException(
-            status_code=429,
-            detail={"code": "too_many_questions", "message": f"Muitas perguntas seguidas. Espere {wait} s e tente de novo."},
-            headers={"Retry-After": str(wait)},
-        )
+        raise HTTPException(status_code=429, detail={"code": "too_many_questions", "message": f"Muitas perguntas seguidas. Espere {wait} s e tente de novo."}, headers={"Retry-After": str(wait)})
+    wait = day_limiter.check(ip)
+    if wait is not None:
+        raise HTTPException(status_code=429, detail={"code": "daily_limit", "message": "Você chegou ao limite de perguntas de hoje. Volte amanhã."}, headers={"Retry-After": str(wait)})
+    wait = total_limiter.check("todos")
+    if wait is not None:
+        raise HTTPException(status_code=429, detail={"code": "site_daily_limit", "message": "O Aster atingiu o limite de uso de hoje. Volte amanhã."}, headers={"Retry-After": str(wait)})
+
+
+def reset_limits() -> None:
+    for limiter in (ask_limiter, day_limiter, total_limiter):
+        limiter.reset()
 
 
 # ---------------------------------------------------------------- dados pessoais
@@ -148,13 +184,28 @@ ROUTE_ERRORS = {
 }
 
 
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+
+
 def install(app: FastAPI) -> None:
     @app.middleware("http")
     async def body_limit(request: Request, call_next):
         size = request.headers.get("content-length")
         if size and size.isdigit() and int(size) > MAX_BODY_BYTES:
             return JSONResponse(error_body("payload_too_large", "A requisição passou de 64 KB."), status_code=413)
-        return await call_next(request)
+        response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        # respostas da API (chaves mascaradas, configurações) nunca ficam em cache
+        if request.url.path.startswith(("/api/admin", "/api/settings", "/api/providers")):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_: Request, exc: RequestValidationError):

@@ -1287,3 +1287,34 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 
 .xray-scope { display: flex; align-items: center; gap: 8px; margin: -6px 0 12px; padding: 10px 14px; border-radius: 12px; background: rgba(255, 214, 107, 0.13); border: 1px solid rgba(255, 214, 107, 0.4); font-size: 14.5px; color: var(--warn); }
 .xray-scope svg { flex: none; }
+
+/* ------------------------------------------------------------------ administração */
+.admin-gate { display: flex; flex-direction: column; gap: 14px; padding: 8px 2px; }
+.admin-lock { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; background: var(--lime-soft); color: var(--lime); border: 1px solid var(--lime-line); }
+.admin-gate h3 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+.admin-gate > p { font-size: 15px; line-height: 1.5; color: var(--on-sky-2); }
+.admin-field { display: flex; flex-direction: column; gap: 6px; }
+.admin-field span { font-size: 14px; font-weight: 600; color: var(--on-sky); }
+.admin-field small { font-size: 12.5px; color: var(--on-sky-3); }
+.admin-field input, .password-form input, .config-row input, .config-row select { height: 42px; padding: 0 12px; border-radius: 11px; border: 1px solid var(--glass-line); background: rgba(2, 14, 44, 0.45); color: var(--on-sky); font: inherit; font-size: 15px; }
+.admin-field input:focus-visible, .password-form input:focus-visible, .config-row input:focus-visible, .config-row select:focus-visible { outline: 2px solid var(--lime); outline-offset: 1px; }
+.admin-gate .primary-button { align-self: flex-start; }
+.admin-warning { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: rgba(255, 214, 107, 0.13); border: 1px solid rgba(255, 214, 107, 0.4); color: var(--warn); font-size: 14px; line-height: 1.45; }
+.admin-warning svg { flex: none; margin-top: 2px; }
+.admin-warning .link-button { font-size: 14px; color: var(--warn); }
+.admin-tabs { display: flex; gap: 6px; padding: 4px; border-radius: 13px; background: rgba(2, 14, 44, 0.4); border: 1px solid var(--glass-line-soft); }
+.admin-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; border: 0; border-radius: 10px; background: transparent; color: var(--on-sky-2); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out); }
+.admin-tab.is-on { background: var(--lime); color: var(--lime-ink); }
+.config-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; }
+.config-row { display: grid; grid-template-columns: minmax(0, 1fr) 132px; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--glass-tint); }
+.config-label { display: flex; flex-direction: column; gap: 2px; font-size: 14px; font-weight: 600; color: var(--on-sky); }
+.config-label small { font-size: 12px; font-weight: 500; color: var(--on-sky-3); }
+.config-row input { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
+.config-row select { width: 100%; }
+.switch { justify-self: end; position: relative; width: 48px; height: 28px; border: 0; border-radius: 999px; background: var(--glass-tint-2); cursor: pointer; transition: background-color 180ms var(--ease-out); }
+.switch i { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--on-sky); transition: transform 200ms var(--ease-out); }
+.switch.is-on { background: var(--lime); }
+.switch.is-on i { transform: translateX(20px); background: var(--lime-ink); }
+.password-form { display: flex; flex-wrap: wrap; gap: 8px; }
+.password-form input { flex: 1 1 180px; }
+.sheet-ok { padding: 10px 14px; border-radius: 12px; background: var(--good-soft); border: 1px solid rgba(126, 224, 143, 0.4); color: var(--good); font-size: 14px; }

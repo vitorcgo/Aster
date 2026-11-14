@@ -8,10 +8,10 @@ from collections import Counter
 from functools import lru_cache
 
 import pymupdf
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from api import main
+from api import main, security
 from api.eval_set import EVAL_SET
 
 router = APIRouter(prefix="/api/lab")
@@ -161,7 +161,9 @@ def _embed(texts: tuple[str, ...]) -> list[list[float]]:
 
 
 @router.post("/embeddings")
-def embeddings(body: EmbedBody):
+def embeddings(body: EmbedBody, request: Request):
+    # vetores do Gemini gastam a chave do dono do site: entram no mesmo limite das perguntas
+    security.limit_questions(request)
     rows = main.rank_candidates(body.q, limit=15)
     if not rows:
         raise HTTPException(status_code=404, detail={"code": "no_candidates", "message": "A busca lexical não encontrou candidatos para essa pergunta."})
