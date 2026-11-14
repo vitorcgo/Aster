@@ -1,12 +1,13 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./Icon";
 import { Mascot } from "./Mascot";
 import Link from "next/link";
 import { faviconUrl, lectureLabel, siteName, type Source, type TraceNode, type Turn } from "@/lib/aster";
 import { stageForPage } from "@/lib/lab";
+import { fly } from "@/lib/motion";
 
 type Segment = { text: string; bold: boolean };
 
@@ -163,6 +164,39 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
   const total = blocks.reduce((sum, block) => sum + block.length, 0);
   const [count, setCount] = useState(revealing ? 0 : total);
   const done = count >= total;
+  const root = useRef<HTMLDivElement>(null);
+  const wasRevealing = useRef(revealing);
+  if (revealing) wasRevealing.current = true;
+
+  // A fonte que o cursor marcou no slide é a primeira das aulas (ou da web). Quando o parágrafo que a cita
+  // termina de ser escrito, o trecho marcado se solta da página e vira o chip da citação.
+  const lead = turn.sources.find((source) => source.kind === "aula") ?? turn.sources[0];
+  const leadBlock = lead ? blocks.findIndex((block) => block.citation_ids.includes(lead.id)) : -1;
+  const leadEnd = leadBlock < 0 ? -1 : blocks.slice(0, leadBlock + 1).reduce((sum, block) => sum + block.length, 0);
+  const flown = useRef(false);
+  useLayoutEffect(() => {
+    if (!revealing || flown.current || !lead || leadEnd < 0 || count < leadEnd) return;
+    flown.current = true;
+    const group = groupCitations(blocks[leadBlock].citation_ids, turn).find((item) => item.sources.some((source) => source.id === lead.id));
+    const chip = group && root.current?.querySelector(`[data-cursor="chip-${group.sources[0].id}"]`);
+    const from = document.querySelector(lead.kind === "aula" ? '.deck [data-cursor="evidence"]' : `.deck [data-cursor="web-${lead.id}"]`);
+    if (!chip || !from) return;
+    const label = lead.kind === "aula" ? (lead.quote.length > 70 ? `${lead.quote.slice(0, 69)}…` : lead.quote) : siteName(lead.domain);
+    fly({ from, to: chip, label, tone: lead.kind, hideTarget: true });
+  }, [revealing, count, lead, leadEnd, leadBlock, blocks, turn]);
+
+  // o fato guardado voa do selo "Guardei" até o botão Memória, só na resposta que acabou de ser escrita
+  const memoryFlown = useRef(false);
+  useEffect(() => {
+    if (!done || !wasRevealing.current || memoryFlown.current || !turn.remembered?.length) return;
+    memoryFlown.current = true;
+    // espera o rodapé da resposta entrar; sem limpar o timer, porque o turno é recriado a cada evento
+    window.setTimeout(() => {
+      const from = root.current?.querySelector(".badge-memory");
+      const to = document.querySelector(".chat-head-memory");
+      if (from && to) fly({ from, to, label: "Guardei", tone: "memory" });
+    }, 420);
+  }, [done, turn.remembered]);
 
   useEffect(() => {
     if (!revealing) { setCount(total); return; }
@@ -191,7 +225,7 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
   let consumed = 0;
 
   return (
-    <div className="answer" data-cursor={`answer-${turn.id}`}>
+    <div className="answer" data-cursor={`answer-${turn.id}`} ref={root}>
       {blocks.map((block, index) => {
         const start = consumed;
         consumed += block.length;
@@ -350,7 +384,7 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
               </motion.div>
               <motion.div className="bubble-aster" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.35 }}>
                 <div className="bubble-aster-head">
-                  <Mascot mood={turn.id === last?.id ? mood : turn.status === "answered" ? "success" : "idle"} size={30} />
+                  <Mascot mood={turn.id === last?.id ? mood : turn.status === "answered" ? "success" : "idle"} size={30} alert={turn.status === "failed" || turn.status === "empty"} />
                   <span>Aster</span>
                   {turn.status === "running" && !turn.light && <span className="bubble-step">passo {Math.max(1, turn.step)}</span>}
                 </div>

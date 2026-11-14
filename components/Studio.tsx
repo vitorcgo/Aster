@@ -4,6 +4,7 @@ import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AsterCursor, type CursorGesture, type CursorState } from "./AsterCursor";
 import { Composer } from "./Composer";
+import { Flight } from "./Flight";
 import { DocumentDeck, pageTabId, type DocTab } from "./DocumentDeck";
 import { Investigation } from "./Investigation";
 import { Landscape } from "./Landscape";
@@ -496,6 +497,14 @@ export function Studio({ active = true }: { active?: boolean }) {
   }, [openTab, openSource]);
 
   const activeTurn = turns.find((turn) => turn.id === activeTurnId) ?? null;
+  // para que lado o baralho de fontes vira: pergunta mais nova entra pela direita, voltar a uma antiga entra pela esquerda
+  const activeIndex = turns.findIndex((turn) => turn.id === activeTurnId);
+  const lastIndex = useRef(activeIndex);
+  const deckDirection = useRef(1);
+  if (lastIndex.current !== activeIndex) {
+    deckDirection.current = activeIndex >= lastIndex.current ? 1 : -1;
+    lastIndex.current = activeIndex;
+  }
   const turnTabs = useMemo(() => tabs.filter((tab) => tab.turn === activeTurnId), [tabs, activeTurnId]);
   const shownTab = turnTabs.some((tab) => tab.id === activeTab) ? activeTab : turnTabs[turnTabs.length - 1]?.id ?? null;
   const deckEmpty = !activeTurn ? undefined
@@ -603,6 +612,8 @@ export function Studio({ active = true }: { active?: boolean }) {
                     tabs={turnTabs}
                     activeId={shownTab}
                     empty={deckEmpty}
+                    turnKey={activeTurnId}
+                    direction={deckDirection.current}
                     drawId={stagingId ? drawTab : null}
                     onSelect={(id) => { setActiveTab(id); }}
                     highlights={highlights}
@@ -617,6 +628,7 @@ export function Studio({ active = true }: { active?: boolean }) {
           )}
         </AnimatePresence>
       </LayoutGroup>
+      <Flight />
       <AsterCursor state={cursor} />
     </div>
   );

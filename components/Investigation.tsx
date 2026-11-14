@@ -7,6 +7,7 @@ import { Drawable } from "./Drawable";
 import { Icon, type IconName } from "./Icon";
 import { Mascot } from "./Mascot";
 import { faviconUrl, lectureLabel, siteName, type Material, type TraceNode, type Turn, providerLabel } from "@/lib/aster";
+import { ease } from "@/lib/motion";
 
 type Props = {
   turn: Turn | null;
@@ -21,7 +22,39 @@ type Props = {
 
 type Edge = { id: string; d: string; tone: "flow" | "aula" | "web"; live: boolean };
 
-const ease = [0.23, 1, 0.32, 1] as const;
+/**
+ * Busca nas aulas: enquanto varre, o mapa das 12 aulas pisca linha a linha; quando o resultado chega, as páginas
+ * achadas acendem no mapa por um instante e só então o mapa dá lugar à lista. Assim dá para ver de onde veio cada trecho.
+ * Uma busca que já chegou pronta (conversa restaurada) mostra direto a lista.
+ */
+function SearchHits({ node, materials }: { node: Extract<TraceNode, { kind: "search" }>; materials: Material[] }) {
+  const [showMap, setShowMap] = useState(node.hits === null);
+  const hits = node.hits;
+  useEffect(() => {
+    if (hits === null) { setShowMap(true); return; }
+    if (!hits.length) { setShowMap(false); return; }
+    const timer = window.setTimeout(() => setShowMap(false), 1300);
+    return () => window.clearTimeout(timer);
+  }, [hits]);
+  const pages = hits ? Array.from(new Map(hits.map((hit) => [`${hit.document_id}:${hit.page}`, hit])).values()).slice(0, 3) : [];
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      {showMap ? (
+        <motion.div key="map" exit={{ opacity: 0, height: 0, transition: { duration: 0.22, ease } }}>
+          <AcervoGrid materials={materials} hits={hits} focus={node.aula} />
+        </motion.div>
+      ) : pages.length > 0 ? (
+        <motion.ul key="list" className="hit-mini" initial="hidden" animate="shown" variants={{ shown: { transition: { staggerChildren: 0.06 } } }}>
+          {pages.map((hit) => (
+            <motion.li key={hit.id} variants={{ hidden: { opacity: 0, x: -6 }, shown: { opacity: 1, x: 0, transition: { duration: 0.28, ease } } }}>
+              <Icon name="page" size={13} /><span><b>{lectureLabel(hit.document_id, hit.page)}</b>{hit.quote}</span>
+            </motion.li>
+          ))}
+        </motion.ul>
+      ) : null}
+    </AnimatePresence>
+  );
+}
 
 function nodeIcon(node: TraceNode): IconName {
   switch (node.kind) {
@@ -71,16 +104,7 @@ function NodeBody({ node, materials }: { node: TraceNode; materials: Material[] 
       return (
         <>
           <p className="node-query">“{node.query}”{node.aula && <span className="node-scope"> em {lectureLabel(node.aula)}</span>}</p>
-          {node.hits === null ? (
-            // enquanto varre, o mapa das 12 aulas; com o resultado, as páginas achadas (o mapa quase todo apagado parecia vazio)
-            <AcervoGrid materials={materials} hits={node.hits} focus={node.aula} />
-          ) : node.hits.length > 0 && (
-            <ul className="hit-mini">
-              {Array.from(new Map(node.hits.map((hit) => [`${hit.document_id}:${hit.page}`, hit])).values()).slice(0, 3).map((hit) => (
-                <li key={hit.id}><Icon name="page" size={13} /><span><b>{lectureLabel(hit.document_id, hit.page)}</b>{hit.quote}</span></li>
-              ))}
-            </ul>
-          )}
+          <SearchHits node={node} materials={materials} />
           <p className="node-meta">{node.hits === null ? "Varrendo 12 aulas" : node.hits.length ? `${node.hits.length} trechos em ${docs} ${docs === 1 ? "aula" : "aulas"}` : "Nada encontrado"}</p>
         </>
       );
@@ -152,6 +176,25 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
     }
     return Array.from(links, ([from, tone]) => ({ from, tone }));
   }, [turn, nodes]);
+
+  // páginas e pesquisas que o Aster abriu mas não citou ficam apagadas depois da resposta: o que sobra aceso é o que sustenta
+  const unused = useMemo(() => {
+    if (!turn || turn.status !== "answered" || turn.chat || !citedFrom.length) return new Set<string>();
+    const cited = new Set(citedFrom.map((link) => link.from));
+    return new Set(nodes.filter((node) => (node.kind === "read" || node.kind === "web") && !cited.has(node.id)).map((node) => node.id));
+  }, [turn, nodes, citedFrom]);
+
+  // quando a consulta ao vivo termina com resposta, o caminho acende uma vez, do começo até a resposta
+  const [glow, setGlow] = useState(0);
+  const wasLive = useRef(live);
+  useEffect(() => {
+    const finished = wasLive.current && !live && turn?.status === "answered" && !turn.chat;
+    wasLive.current = live;
+    if (!finished) return;
+    setGlow((value) => value + 1);
+    const timer = window.setTimeout(() => setGlow(0), 2600);
+    return () => window.clearTimeout(timer);
+  }, [live, turn?.status, turn?.chat]);
 
   useLayoutEffect(() => {
     const element = track.current;
@@ -314,9 +357,9 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
       ) : (
         <div className="track-viewport" ref={viewport}>
         <div className="track" ref={track}>
-          <svg className="track-edges" width={size.width} height={size.height} aria-hidden="true">
-            {edges.map((edge) => (
-              <g key={edge.id} className={`edge edge-${edge.tone} ${edge.live ? "is-live" : ""}`}>
+          <svg className={`track-edges ${glow ? "is-glow" : ""}`} width={size.width} height={size.height} aria-hidden="true">
+            {edges.map((edge, index) => (
+              <g key={edge.id} className={`edge edge-${edge.tone} ${edge.live ? "is-live" : ""}`} style={{ ["--i" as string]: index }}>
                 <motion.path id={edge.id} d={edge.d} initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: edge.tone === "flow" ? 0.6 : 0.9, ease, delay: edge.tone === "flow" ? 0 : 0.3 }} />
                 {edge.live && (
                   <text className="edge-glyphs" dy="4">
@@ -343,7 +386,7 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
                   enabled={live}
                   radius={compact ? 999 : 18}
                   data-node={node.id}
-                  className={`trace-node node-${node.kind} ${tone} ${isLast && turn.status === "running" ? "is-current" : ""}`}
+                  className={`trace-node node-${node.kind} ${tone} ${isLast && turn.status === "running" ? "is-current" : ""} ${unused.has(node.id) ? "is-unused" : ""}`}
                 >
                   {clickable ? (
                     <button type="button" className="node-hit" onClick={() => onOpenNode(node)} aria-label={`Abrir ${nodeTitle(node).toLowerCase()}: ${shortLabel(node)}`} />

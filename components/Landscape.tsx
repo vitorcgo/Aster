@@ -8,6 +8,34 @@ import { useEffect, useRef } from "react";
  */
 export function Landscape({ dim = false, paused = false }: { dim?: boolean; paused?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+
+  // profundidade: na tela inicial, a paisagem acompanha o mouse de leve (os glifos do céu, mais perto, andam mais)
+  useEffect(() => {
+    const element = root.current;
+    if (!element || dim || paused || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!window.matchMedia("(pointer: fine)").matches) return;
+    let frame = 0;
+    let x = 0;
+    let y = 0;
+    const apply = () => {
+      frame = 0;
+      element.style.setProperty("--px", x.toFixed(3));
+      element.style.setProperty("--py", y.toFixed(3));
+    };
+    const onMove = (event: PointerEvent) => {
+      x = event.clientX / window.innerWidth - 0.5;
+      y = event.clientY / window.innerHeight - 0.5;
+      if (!frame) frame = requestAnimationFrame(apply);
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      cancelAnimationFrame(frame);
+      element.style.setProperty("--px", "0");
+      element.style.setProperty("--py", "0");
+    };
+  }, [dim, paused]);
 
   useEffect(() => {
     const surface = canvas.current;
@@ -93,9 +121,13 @@ export function Landscape({ dim = false, paused = false }: { dim?: boolean; paus
   }, [paused, dim]);
 
   return (
-    <div className={`landscape ${dim ? "is-dim" : ""}`} aria-hidden="true">
-      <img className="landscape-image" src="/backgrounds/aster-landscape.png" alt="" />
-      <canvas ref={canvas} className="landscape-glyphs" />
+    <div className={`landscape ${dim ? "is-dim" : ""}`} aria-hidden="true" ref={root}>
+      <div className="landscape-depth is-far">
+        <img className="landscape-image" src="/backgrounds/aster-landscape.png" alt="" />
+      </div>
+      <div className="landscape-depth is-near">
+        <canvas ref={canvas} className="landscape-glyphs" />
+      </div>
       <div className="landscape-veil" />
     </div>
   );

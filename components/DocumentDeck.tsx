@@ -26,7 +26,19 @@ type Props = {
   onEvidence: () => void;
   /** texto do estado vazio, conforme a pergunta ativa */
   empty?: string;
+  /** pergunta dona das fontes na tela, e para que lado ela fica na conversa (1 = mais nova, -1 = mais antiga) */
+  turnKey?: string | null;
+  direction?: number;
 };
+
+// Trocar de pergunta é trocar de baralho: o cartão da pergunta anterior recua para trás e o da nova entra por cima.
+// Voltar a uma pergunta antiga faz o caminho inverso. Dentro da mesma pergunta, trocar de aba é só um esmaecer.
+const card = {
+  enter: (shift: number) => ({ opacity: 0, x: shift * 56, y: shift ? 6 : 0, scale: shift ? 0.96 : 1, rotate: shift * 1.4, zIndex: 2 }),
+  center: { opacity: 1, x: 0, y: 0, scale: 1, rotate: 0, zIndex: 2 },
+  exit: (shift: number) => ({ opacity: 0, x: shift * -40, y: shift ? 14 : 0, scale: shift ? 0.9 : 1, rotate: shift * -2, zIndex: 1 }),
+};
+const cardMotion = { type: "spring", stiffness: 260, damping: 30, mass: 0.9, opacity: { duration: 0.24 } } as const;
 
 // várias pesquisas na web viram várias abas; o termo pesquisado as diferencia
 function webLabel(query: string) {
@@ -71,9 +83,16 @@ function WebPanel({ tab, focusId }: { tab: Extract<DocTab, { kind: "web" }>; foc
   );
 }
 
-export function DocumentDeck({ tabs, activeId, drawId, onSelect, highlights, focusWebId, scanning, onRendered, onEvidence, empty }: Props) {
+export function DocumentDeck({ tabs, activeId, drawId, onSelect, highlights, focusWebId, scanning, onRendered, onEvidence, empty, turnKey = null, direction = 1 }: Props) {
   const active = tabs.find((tab) => tab.id === activeId) ?? tabs[tabs.length - 1] ?? null;
   const strip = useRef<HTMLDivElement>(null);
+  // o deslocamento só vale quando a pergunta mudou; calculado no render para o cartão que sai e o que entra concordarem
+  const slotKey = `${turnKey ?? "none"}:${active?.id ?? "empty"}`;
+  const last = useRef({ slotKey, turnKey, shift: 0 });
+  if (last.current.slotKey !== slotKey) {
+    last.current = { slotKey, turnKey, shift: last.current.turnKey !== turnKey ? (direction < 0 ? -1 : 1) : 0 };
+  }
+  const shift = last.current.shift;
 
   useEffect(() => {
     strip.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
@@ -95,14 +114,14 @@ export function DocumentDeck({ tabs, activeId, drawId, onSelect, highlights, foc
         })}
       </div>
       <div className="deck-body" data-cursor="doc">
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence initial={false} custom={shift}>
           {!active ? (
-            <motion.div key="empty" className="deck-empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div key={slotKey} className="deck-empty" custom={shift} variants={card} initial="enter" animate="center" exit="exit" transition={cardMotion}>
               <Icon name="book" size={28} />
               <p>{empty ?? "As páginas que o Aster abrir e os sites que ele consultar aparecem aqui."}</p>
             </motion.div>
           ) : (
-            <motion.div key={active.id} className="deck-slot" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>
+            <motion.div key={slotKey} className="deck-slot" custom={shift} variants={card} initial="enter" animate="center" exit="exit" transition={cardMotion}>
               <Drawable target={`sheet-${active.id}`} enabled={drawId === active.id} radius={14} className="deck-sheet">
               {active.kind === "page" ? (
                 <>
