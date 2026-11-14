@@ -32,7 +32,7 @@ export function Composer({ value, onChange, onSubmit, onStop, running, size = "d
     event?.preventDefault();
     if (running) return;
     const text = value.trim();
-    if (text.length < 3) return;
+    if (text.length < 2) return;
     onSubmit(text);
   };
 
@@ -43,7 +43,7 @@ export function Composer({ value, onChange, onSubmit, onStop, running, size = "d
     }
   };
 
-  const ready = value.trim().length >= 3;
+  const ready = value.trim().length >= 2;
 
   return (
     <motion.form layoutId="composer" className={`composer composer-${size}`} onSubmit={send} transition={{ type: "spring", duration: 0.6, bounce: 0.12 }}>

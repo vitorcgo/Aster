@@ -90,6 +90,8 @@ type Props = {
   onShowTrace: (turn: Turn) => void;
   onEdit: (question: string) => void;
   onClear: () => void;
+  memory: string[];
+  onForget: (index: number | null) => void;
   running: boolean;
   activeTurnId: string | null;
 };
@@ -216,6 +218,7 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
             <div className="answer-badges">
               {turn.mode === "local" && <span className="badge badge-warn">Modo local: trechos copiados, sem IA</span>}
               {turn.usedFallback && <span className="badge">Modelo reserva</span>}
+              {turn.remembered?.map((fact) => <span key={fact} className="badge badge-memory" title="Guardado na memória do Aster, neste navegador">Guardei: {fact}</span>)}
               {!!turn.masked?.length && <span className="badge" title="Esses dados foram trocados por marcadores antes de a pergunta sair deste computador">{`Ocultei ${listPt(turn.masked)} antes de enviar`}</span>}
               {webCount > 0 && lectureCount === 0 && <span className="badge badge-web">Fora do material das aulas</span>}
               {webCount > 0 && lectureCount > 0 && <span className="badge badge-web">Aulas e web</span>}
@@ -243,7 +246,8 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
   );
 }
 
-export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, onRetry, onShowTrace, onEdit, onClear, running, activeTurnId }: Props) {
+export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, onRetry, onShowTrace, onEdit, onClear, memory, onForget, running, activeTurnId }: Props) {
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   // só acompanha o fim enquanto o aluno está lá embaixo; se ele subiu para ler, não puxamos de volta
@@ -296,6 +300,9 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
       <header className="chat-head">
         <span className="chat-head-title"><Icon name="chat" size={16} />Conversa</span>
         <span className="chat-head-meta">{turns.length} {turns.length === 1 ? "pergunta" : "perguntas"}{answered !== turns.length ? ` · ${answered} respondidas` : ""}</span>
+        <button type="button" className={`chat-head-memory ${memory.length ? "has-facts" : ""}`} onClick={() => setMemoryOpen((value) => !value)} aria-expanded={memoryOpen} title="O que o Aster lembra de você">
+          <Icon name="book" size={14} />Memória{memory.length > 0 && <b>{memory.length}</b>}
+        </button>
         <button
           type="button"
           className={`chat-head-clear ${confirmClear ? "is-confirm" : ""}`}
@@ -306,6 +313,25 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
           <Icon name={confirmClear ? "check" : "plus"} size={15} />{confirmClear ? "Confirmar" : "Nova conversa"}
         </button>
       </header>
+      <AnimatePresence>
+        {memoryOpen && (
+          <motion.div className="memory-panel" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+            <p className="memory-title">O que o Aster lembra de você</p>
+            {memory.length ? (
+              <>
+                <ul>
+                  {memory.map((fact, index) => (
+                    <li key={fact}><span>{fact}</span><button type="button" onClick={() => onForget(index)} aria-label={`Esquecer: ${fact}`}><Icon name="close" size={13} /></button></li>
+                  ))}
+                </ul>
+                <button type="button" className="link-button" onClick={() => onForget(null)}>Esquecer tudo</button>
+              </>
+            ) : (
+              <p className="memory-empty">Nada ainda. Conte seu nome, seu curso ou como prefere estudar, e ele guarda para as próximas conversas. Fica só neste navegador.</p>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="thread" ref={box} onScroll={onScroll} aria-live="polite">
         {turns.map((turn) => {
           const revealing = turn.id === revealId;
@@ -322,13 +348,13 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
                 <div className="bubble-aster-head">
                   <Mascot mood={turn.id === last?.id ? mood : turn.status === "answered" ? "success" : "idle"} size={30} />
                   <span>Aster</span>
-                  {turn.status === "running" && <span className="bubble-step">passo {Math.max(1, turn.step)}</span>}
+                  {turn.status === "running" && !turn.light && <span className="bubble-step">passo {Math.max(1, turn.step)}</span>}
                 </div>
                 {(turn.status === "running" || pendingReveal) && (
                   <div className="live-line">
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.p key={pendingReveal ? "selecionando" : liveLine(turn)} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="shimmer">
-                        {pendingReveal ? "Marcando o trecho que sustenta a resposta" : liveLine(turn)}
+                        {pendingReveal ? "Marcando o trecho que sustenta a resposta" : turn.light ? "Digitando" : liveLine(turn)}
                       </motion.p>
                     </AnimatePresence>
                   </div>

@@ -39,6 +39,7 @@ export type RunEvent = {
   t: number;
   type:
     | "run_started"
+    | "memory_saved"
     | "agent_thinking"
     | "agent_thought"
     | "tool_call"
@@ -88,6 +89,10 @@ export type Turn = {
   events: RunEvent[];
   /** quando a pergunta foi feita (ms); sessões antigas não têm */
   createdAt?: number;
+  /** conversa leve (cumprimento, agradecimento): respondida direto no chat, sem investigação */
+  light?: boolean;
+  /** fatos que o Aster guardou na memória durante esta troca */
+  remembered?: string[];
 };
 
 export function newTurn(id: string, question: string): Turn {
@@ -123,7 +128,9 @@ export function applyEvent(turn: Turn, event: RunEvent): Turn {
   const next: Turn = { ...turn, elapsed: event.t ?? turn.elapsed };
   switch (event.type) {
     case "run_started":
-      return { ...next, model: data.model ?? null, mode: data.mode ?? null, masked: Array.isArray(data.masked) ? data.masked.map(String) : [] };
+      return { ...next, model: data.model ?? null, mode: data.mode ?? null, light: !!data.light, masked: Array.isArray(data.masked) ? data.masked.map(String) : [] };
+    case "memory_saved":
+      return { ...next, remembered: [...(turn.remembered ?? []), String(data.fact ?? "")].filter(Boolean) };
     case "agent_thinking":
       return { ...next, thinking: true, step: data.step ?? turn.step + 1, model: data.model ?? turn.model };
     case "agent_thought":

@@ -10,6 +10,7 @@ import { Landscape } from "./Landscape";
 import { Mascot, type MascotMood } from "./Mascot";
 import { Thread } from "./Thread";
 import { TopBar } from "./TopBar";
+import { addFact, loadMemory, saveMemory } from "@/lib/memory";
 import { forgetDrawn, waitForDrawn } from "@/lib/draw";
 import { rememberRun } from "@/lib/lab";
 import { applyEvent, eventDwell, lectureLabel, newTurn, type LectureSource, type Material, type PagePayload, type RunEvent, type Source, type TraceNode, type Turn } from "@/lib/aster";
@@ -52,6 +53,12 @@ export function Studio({ active = true }: { active?: boolean }) {
   const [restored] = useState(readSession);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [draft, setDraft] = useState("");
+  // memória duradoura: fatos que o aluno contou, guardados neste navegador
+  const [memory, setMemory] = useState<string[]>([]);
+  const memoryRef = useRef<string[]>([]);
+  memoryRef.current = memory;
+  useEffect(() => { setMemory(loadMemory()); }, []);
+  const updateMemory = useCallback((next: string[]) => { memoryRef.current = next; setMemory(next); saveMemory(next); }, []);
   const [turns, setTurns] = useState<Turn[]>(() => restored?.turns ?? []);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(() => restored?.activeTurnId ?? null);
   const [tabs, setTabs] = useState<DocTab[]>(() => restored?.tabs ?? []);
@@ -195,8 +202,22 @@ export function Studio({ active = true }: { active?: boolean }) {
       await waitForDrawn(`sheet-${tab.id}`);
     };
 
+    if (event.type === "memory_saved") {
+      updateMemory(addFact(memoryRef.current, String(data.fact ?? "")));
+      return;
+    }
+    // conversa leve: a resposta aparece direto no chat, sem cursor, sem trilha e sem trocar a investigação da tela
+    if (after.light) {
+      if (event.type === "answer_ready") { setStagingId(null); setRevealId(turnId); }
+      return;
+    }
+
     switch (event.type) {
       case "run_started":
+        // só agora sabemos que é uma pergunta de verdade: a investigação passa a mostrar esta consulta
+        setActiveTurnId(turnId);
+        setStagingId(turnId);
+        setCompact(false);
         await drawNode(`${turnId}-q`, "Anotando sua pergunta");
         break;
       case "agent_thinking":
@@ -302,7 +323,7 @@ export function Studio({ active = true }: { active?: boolean }) {
         return;
     }
     await sleep(eventDwell(event));
-  }, [openTab, pageFor, point, updateTurn]);
+  }, [openTab, pageFor, point, updateTurn, updateMemory]);
 
   const drain = useCallback(async () => {
     if (draining.current) return;
@@ -332,26 +353,23 @@ export function Studio({ active = true }: { active?: boolean }) {
     const turnId = `t${Date.now()}`;
     const context = turnsRef.current
       .filter((turn) => turn.status === "answered" && !turn.id.startsWith("review"))
-      .slice(-3)
-      .map((turn) => ({ question: turn.question, answer: turn.blocks.map((block) => block.text).join(" ").slice(0, 1800) }));
+      .slice(-8)
+      .map((turn) => ({ question: turn.question.slice(0, 500), answer: turn.blocks.map((block) => block.text).join(" ").slice(0, 700) }));
     const fresh = newTurn(turnId, question);
     turnsRef.current = [...turnsRef.current, fresh];
     setTurns(turnsRef.current);
-    setActiveTurnId(turnId);
-    setStagingId(turnId);
     setDrawTab(null);
     setDraft("");
     setFocus(null);
     setRevealId(null);
     setHoldId(null);
-    setCompact(false);
     setReplaying(false);
     let runId = "";
     try {
       const response = await fetch("/api/tutor/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, context }),
+        body: JSON.stringify({ question, context, memory: memoryRef.current }),
         signal: abort.signal,
       });
       if (!response.ok || !response.body) {
@@ -540,6 +558,8 @@ export function Studio({ active = true }: { active?: boolean }) {
                   onShowTrace={(turn) => { setActiveTurnId(turn.id); setCompact(false); }}
                   onEdit={(question) => { setDraft(question); window.setTimeout(() => { const field = document.getElementById("question-dock") as HTMLTextAreaElement | null; field?.focus(); field?.setSelectionRange(question.length, question.length); }, 0); }}
                   onClear={reset}
+                  memory={memory}
+                  onForget={(index) => updateMemory(index === null ? [] : memory.filter((_, position) => position !== index))}
                   running={running}
                   activeTurnId={activeTurnId}
                 />
