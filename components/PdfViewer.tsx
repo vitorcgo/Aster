@@ -32,7 +32,9 @@ const plain = (value: string) =>
 
 export default function PdfViewer({ page, highlights, scanning, onRendered, onEvidence }: Props) {
   const [pageNumber, setPageNumber] = useState(page.page);
-  const [numPages, setNumPages] = useState(0);
+  // o total pertence a um PDF; ao trocar de arquivo ele some até o novo carregar
+  const [loaded, setLoaded] = useState({ url: "", pages: 0 });
+  const numPages = loaded.url === page.pdf_url ? loaded.pages : 0;
   const [box, setBox] = useState({ width: 600, height: 400 });
   const [aspect, setAspect] = useState(4 / 3);
   const [zoom, setZoom] = useState(1);
@@ -52,7 +54,6 @@ export default function PdfViewer({ page, highlights, scanning, onRendered, onEv
     setZoom(1);
   }, [page.document_id, page.page]);
 
-  useEffect(() => { setNumPages(0); }, [page.pdf_url]);
 
   useEffect(() => {
     const element = stage.current;
@@ -149,7 +150,7 @@ export default function PdfViewer({ page, highlights, scanning, onRendered, onEv
           <div className="pdf-sheet" ref={sheet} style={{ width }} data-cursor="doc-page">
             <Document
               file={file}
-              onLoadSuccess={({ numPages: count }) => setNumPages(count)}
+              onLoadSuccess={({ numPages: count }) => setLoaded({ url: page.pdf_url, pages: count })}
               loading={<div className="pdf-placeholder" style={{ width, height: width / aspect }} />}
               error={<p className="pdf-error">Não foi possível abrir o PDF.</p>}
             >

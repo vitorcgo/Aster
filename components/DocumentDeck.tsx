@@ -25,6 +25,12 @@ type Props = {
   onEvidence: () => void;
 };
 
+// várias pesquisas na web viram várias abas; o termo pesquisado as diferencia
+function webLabel(query: string) {
+  const text = query.trim() || "Web";
+  return text.length > 24 ? `${text.slice(0, 23)}…` : text;
+}
+
 export function pageTabId(documentId: string, page: number) {
   return `${documentId}-p${page}`;
 }
@@ -79,7 +85,7 @@ export function DocumentDeck({ tabs, activeId, drawId, onSelect, highlights, foc
           return (
             <button key={tab.id} type="button" role="tab" aria-selected={selected} className="deck-tab" data-cursor={`tab-${tab.id}`} onClick={() => onSelect(tab.id)}>
               {tab.kind === "page" ? <Icon name="page" size={15} /> : <img src={faviconUrl(tab.results[0]?.domain ?? "wikipedia.org")} alt="" width="15" height="15" />}
-              <span>{tab.kind === "page" ? lectureLabel(tab.page.document_id, tab.page.page) : siteName(tab.results[0]?.domain ?? "Web")}</span>
+              <span>{tab.kind === "page" ? lectureLabel(tab.page.document_id, tab.page.page) : webLabel(tab.query)}</span>
               {selected && <motion.span className="deck-tab-line" layoutId="deck-tab-line" transition={{ type: "spring", stiffness: 500, damping: 38 }} />}
             </button>
           );
