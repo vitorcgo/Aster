@@ -180,7 +180,7 @@ export default function PdfViewer({ page, highlights, scanning, onRendered, onEv
       </div>
       <div className="pdf-toolbar" role="toolbar" aria-label="Controles do documento">
         <button type="button" className="icon-button" onClick={() => setPageNumber((value) => Math.max(1, value - 1))} disabled={pageNumber <= 1} aria-label="Página anterior"><Icon name="left" /></button>
-        <span className="pdf-count">Página {pageNumber} de {numPages || "…"}</span>
+        <span className="pdf-count"><span className="pdf-count-word">Página </span>{pageNumber} de {numPages || "…"}</span>
         <button type="button" className="icon-button" onClick={() => setPageNumber((value) => Math.min(numPages || value, value + 1))} disabled={!numPages || pageNumber >= numPages} aria-label="Próxima página"><Icon name="right" /></button>
         {pageNumber !== page.page && <button type="button" className="text-button" onClick={() => setPageNumber(page.page)}>Voltar à página {page.page}</button>}
         <span className="toolbar-gap" />

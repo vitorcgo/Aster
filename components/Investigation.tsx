@@ -341,7 +341,7 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
           </button>
         )}
         {turn && turn.status !== "running" && turn.events.length > 0 && (
-          <button type="button" className="ghost-button" onClick={onReplay} disabled={replaying}><Icon name="replay" size={16} />{replaying ? "Revendo" : "Rever"}</button>
+          <button type="button" className="ghost-button replay-button" onClick={onReplay} disabled={replaying} aria-label={replaying ? "Revendo a investigação" : "Rever a investigação"} title="Rever a investigação"><Icon name="replay" size={16} /><span className="btn-label">{replaying ? "Revendo" : "Rever"}</span></button>
         )}
         {turn && (
           <button type="button" className="ghost-button icon-only" onClick={onToggleCompact} aria-label={compact ? "Expandir investigação" : "Recolher investigação"} aria-pressed={!compact}>
