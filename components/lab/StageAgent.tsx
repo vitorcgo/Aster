@@ -39,6 +39,30 @@ function annotate(prompt: string) {
 
 type Step = { kind: "thought" | "action" | "observation" | "answer" | "problem"; title: string; body: React.ReactNode; t: number };
 
+// o system prompt resumido em quatro linhas, para o modo simples (o texto inteiro fica em "por dentro")
+const RULES = [
+  { kind: "papel", label: "Quem ele é", text: "Um monitor da disciplina de IA, que ajuda a entender a matéria." },
+  { kind: "restricao", label: "O que não pode", text: "Sair da matéria ou inventar: toda frase precisa de uma fonte que ele leu." },
+  { kind: "formato", label: "Como responde", text: "De 1 a 3 parágrafos curtos, cada um com a citação da página." },
+  { kind: "tom", label: "Jeito de falar", text: "Como um colega que explica bem, sem enrolar." },
+];
+
+// nome das ferramentas em português comum
+const TOOL_NAMES: Record<string, string> = {
+  buscar_nas_aulas: "Buscar nas aulas", ler_pagina: "Abrir uma página", pesquisar_na_web: "Pesquisar na web",
+  responder: "Responder com as fontes", conversar: "Bater papo", sem_base: "Dizer que não tem base", lembrar: "Guardar algo sobre o aluno",
+};
+
+const PLAIN_TITLES: Record<string, string> = { Thought: "Pensou", Observation: "Viu", "Final answer": "Respondeu", "Verificação do servidor": "Conferiu" };
+
+function plainStep(step: Step): Step {
+  if (step.kind === "action") {
+    const tool = step.title.replace("Action: ", "");
+    return { ...step, title: "Fez", body: TOOL_NAMES[tool] ?? tool };
+  }
+  return { ...step, title: PLAIN_TITLES[step.title] ?? step.title };
+}
+
 function reactSteps(events: RunEvent[]): Step[] {
   const steps: Step[] = [];
   for (const event of events) {
@@ -67,15 +91,27 @@ function reactSteps(events: RunEvent[]): Step[] {
   return steps;
 }
 
-export function StageAgent({ run, onRun }: { run: LabRun; onRun: () => void }) {
+export function StageAgent({ run, onRun, deep = false }: { run: LabRun; onRun: () => void; deep?: boolean }) {
   const [info, setInfo] = useState<AgentInfo | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"prompt" | "tools">("prompt");
   useEffect(() => { labGet<AgentInfo>("/api/lab/agent").then(setInfo).catch((problem: Error) => setError(problem.message)); }, []);
-  const steps = useMemo(() => reactSteps(run.events), [run.events]);
+  const steps = useMemo(() => (deep ? reactSteps(run.events) : reactSteps(run.events).map(plainStep)), [run.events, deep]);
 
   return (
     <div className="agent-grid">
+      {!deep ? (
+        <div className="lab-card agent-simple">
+          <h3>As regras que ele recebe</h3>
+          <ul className="rule-list">
+            {RULES.map((rule) => <li key={rule.kind}><span className={`rule-tag prompt-${rule.kind}`}>{rule.label}</span><p>{rule.text}</p></li>)}
+          </ul>
+          <h3>As ferramentas que ele pode usar</h3>
+          <ul className="tool-chips">
+            {(info?.tools ?? []).map((tool) => <li key={tool.name}>{TOOL_NAMES[tool.name] ?? tool.name}</li>)}
+          </ul>
+        </div>
+      ) : (
       <div className="lab-card">
         <div className="sheet-row">
           <div className="lab-segment compact">
@@ -105,13 +141,16 @@ export function StageAgent({ run, onRun }: { run: LabRun; onRun: () => void }) {
           </>
         )}
       </div>
+      )}
 
       <div className="lab-card">
         <div className="sheet-row">
-          <h3>Ciclo ReAct desta pergunta</h3>
+          <h3>{deep ? "Ciclo ReAct desta pergunta" : "O que ele decidiu, passo a passo"}</h3>
           <button type="button" className="secondary-button" onClick={onRun} disabled={run.status === "running"}><Icon name="play" size={15} />{run.status === "running" ? "Rodando" : run.events.length ? "Rodar de novo" : "Rodar o agente"}</button>
         </div>
-        <p className="lab-note">Pensamento, ação e observação se alternam até a resposta (Aula 10, p. 9). {run.events.length && !run.live ? "Mostrando a última consulta feita na tela Estudar." : ""} {info ? `Até ${info.max_steps} passos.` : ""}</p>
+        {deep
+          ? <p className="lab-note">Pensamento, ação e observação se alternam até a resposta (Aula 10, p. 9). {run.events.length && !run.live ? "Mostrando a última consulta feita na tela Estudar." : ""} {info ? `Até ${info.max_steps} passos.` : ""}</p>
+          : <p className="lab-note">Ele pensa, faz uma ação, vê o resultado e repete até conseguir responder.</p>}
         {run.message && <p className="sheet-error">{run.message}</p>}
         {steps.length === 0 && run.status !== "running" && <p className="lab-note">Rode o agente para ver cada decisão dele com esta pergunta.</p>}
         <ol className="react-steps">

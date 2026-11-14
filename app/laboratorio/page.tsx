@@ -28,14 +28,24 @@ export default function Laboratorio() {
   const [neural, setNeural] = useState<((query: RQuery) => number | null) | null>(null);
   const [relevance, setRelevance] = useState<RQuery[] | null>(null);
   const runAbort = useRef<AbortController | null>(null);
-  // roteiro de fala: fica ligado por padrão e a escolha é lembrada neste navegador
-  const [script, setScript] = useState(true);
+  // roteiro de fala: fica escondido até a pessoa pedir; a escolha é lembrada neste navegador
+  const [script, setScript] = useState(false);
+  // simples por padrão: uma frase e o visual principal; "por dentro" mostra todos os detalhes técnicos
+  const [deep, setDeep] = useState(false);
 
   useEffect(() => () => runAbort.current?.abort(), []);
 
   useEffect(() => {
-    try { if (localStorage.getItem("aster:roteiro") === "0") setScript(false); } catch { /* sem armazenamento, fica ligado */ }
+    try {
+      if (localStorage.getItem("aster:roteiro") === "1") setScript(true);
+      if (localStorage.getItem("aster:lab-tecnico") === "1") setDeep(true);
+    } catch { /* sem armazenamento, fica no simples */ }
   }, []);
+
+  const toggleDeep = (value: boolean) => {
+    setDeep(value);
+    try { localStorage.setItem("aster:lab-tecnico", value ? "1" : "0"); } catch { /* idem */ }
+  };
 
   const toggleScript = () => setScript((value) => {
     try { localStorage.setItem("aster:roteiro", value ? "0" : "1"); } catch { /* idem */ }
@@ -171,26 +181,26 @@ export default function Laboratorio() {
             <div>
               <p className="stage-kicker">Etapa {index + 1} de {STAGES.length} · {stage.title} · {stage.lecture}</p>
               <h2 id="stage-title">{stage.question}</h2>
+              <p className="stage-say">{talk.say}</p>
+              <p className="stage-like"><Icon name="chat" size={15} />{talk.like}</p>
+            </div>
+            <div className="lab-head-side">
+            <div className="lab-depth" role="radiogroup" aria-label="Quanto detalhe mostrar">
+              <button type="button" role="radio" aria-checked={!deep} className={!deep ? "is-on" : ""} onClick={() => toggleDeep(false)}>Simples</button>
+              <button type="button" role="radio" aria-checked={deep} className={deep ? "is-on" : ""} onClick={() => toggleDeep(true)} title="Fórmulas, código e todos os números">Por dentro</button>
             </div>
             <div className="lab-refs">
-              {stage.refs.map((ref) => (
+              {(deep ? stage.refs : stage.refs.slice(0, 1)).map((ref) => (
                 <Link key={`${ref.document_id}-${ref.page}`} className="chip chip-aula" href={`/?source=${ref.document_id}&page=${ref.page}`} title={lectureLabel(ref.document_id, ref.page)}>
                   <Icon name="page" size={14} />{ref.label}
                 </Link>
               ))}
             </div>
+            </div>
           </header>
           <AnimatePresence mode="wait" initial={false}>
             {script ? (
-              <motion.aside key={`talk-${stageId}`} className="talk" aria-label="Roteiro de fala desta etapa" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
-                <div className="talk-say">
-                  <span className="talk-label">Em uma frase</span>
-                  <p>{talk.say}</p>
-                </div>
-                <div className="talk-like">
-                  <span className="talk-label">Comparação</span>
-                  <p>{talk.like}</p>
-                </div>
+              <motion.aside key={`talk-${stageId}`} className="talk is-points" aria-label="Roteiro de fala desta etapa" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
                 <div className="talk-point">
                   <span className="talk-label">O que mostrar na tela</span>
                   <ol>{talk.point.map((item, position) => <li key={item}><span>{position + 1}</span>{item}</li>)}</ol>
@@ -199,21 +209,21 @@ export default function Laboratorio() {
               </motion.aside>
             ) : (
               <motion.button key="talk-off" type="button" className="talk-show" onClick={toggleScript} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <Icon name="chat" size={15} />Mostrar o roteiro de fala
+                <Icon name="list" size={15} />Roteiro: o que mostrar nesta etapa
               </motion.button>
             )}
           </AnimatePresence>
           {searchError && <p className="sheet-error">{searchError}</p>}
           <AnimatePresence mode="wait">
             <motion.div key={stageId} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.28, ease: [0.23, 1, 0.32, 1] }}>
-              {stageId === "ingestao" && <StageIngest search={search} />}
-              {stageId === "pln" && question && <StageNlp question={question} />}
-              {stageId === "busca" && <StageSearch search={search} question={question} />}
-              {stageId === "embeddings" && question && <StageEmbeddings question={question} />}
-              {stageId === "reranker" && <StageReranker onModel={onModel} onData={onData} />}
-              {stageId === "agente" && <StageAgent run={run} onRun={runAgent} />}
-              {stageId === "streaming" && <StageStream run={run} onRun={runAgent} />}
-              {stageId === "avaliacao" && <StageEval neural={neural} relevance={relevance} />}
+              {stageId === "ingestao" && <StageIngest search={search} deep={deep} />}
+              {stageId === "pln" && question && <StageNlp question={question} deep={deep} />}
+              {stageId === "busca" && <StageSearch search={search} question={question} deep={deep} />}
+              {stageId === "embeddings" && question && <StageEmbeddings question={question} deep={deep} />}
+              {stageId === "reranker" && <StageReranker onModel={onModel} onData={onData} deep={deep} />}
+              {stageId === "agente" && <StageAgent run={run} onRun={runAgent} deep={deep} />}
+              {stageId === "streaming" && <StageStream run={run} onRun={runAgent} deep={deep} />}
+              {stageId === "avaliacao" && <StageEval neural={neural} relevance={relevance} deep={deep} />}
             </motion.div>
           </AnimatePresence>
           <footer className="stage-nav">

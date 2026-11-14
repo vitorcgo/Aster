@@ -30,6 +30,7 @@ const paths: Record<string, React.ReactNode> = {
   grow: <><path d="M12 3v6M9 6l3-3 3 3M12 21v-6M9 18l3 3 3-3" /><path d="M4 12h16" /></>,
   shrink: <><path d="M12 3v6M9 6l3 3 3-3M12 21v-6M9 18l3-3 3 3" /><path d="M4 12h16" /></>,
   chat: <path d="M5 5h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />,
+  list: <><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" strokeWidth="2.6" /></>,
 };
 
 export type IconName = keyof typeof paths;

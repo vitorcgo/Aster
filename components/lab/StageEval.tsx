@@ -63,7 +63,7 @@ function Ring({ hits, total, title, hint, delay }: { hits: number; total: number
   );
 }
 
-export function StageEval({ neural, relevance }: { neural: ((query: RQuery) => number | null) | null; relevance: RQuery[] | null }) {
+export function StageEval({ neural, relevance, deep = false }: { neural: ((query: RQuery) => number | null) | null; relevance: RQuery[] | null; deep?: boolean }) {
   const [data, setData] = useState<Evaluation | null>(null);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<Mode>("busca");
@@ -84,9 +84,9 @@ export function StageEval({ neural, relevance }: { neural: ((query: RQuery) => n
 
   return (
     <div className="stage-grid score">
-      <p className="score-lead">
+      {deep && <p className="score-lead">
         Fizemos <b>{total} perguntas</b> em que já sabíamos a página certa da aula. Para cada uma, conferimos <b>em que posição</b> a busca colocou essa página.
-      </p>
+      </p>}
 
       <div className="score-switch" role="radiogroup" aria-label="Quem ordena as páginas">
         <button type="button" role="radio" aria-checked={mode === "busca"} className={mode === "busca" ? "is-on" : ""} onClick={() => setMode("busca")}>Busca por palavras</button>
@@ -102,6 +102,7 @@ export function StageEval({ neural, relevance }: { neural: ((query: RQuery) => n
         <Ring hits={within(6)} total={total} title="Entre as 6 que o Aster lê" hint="o agente recebe essas 6 páginas" delay={0.2} />
       </div>
 
+      {deep && (
       <section className="score-board" aria-label="Placar pergunta por pergunta">
         <header>
           <h3>Placar, pergunta por pergunta</h3>
@@ -132,7 +133,9 @@ export function StageEval({ neural, relevance }: { neural: ((query: RQuery) => n
           </Link>
         </motion.div>
       </section>
+      )}
 
+      {deep && (
       <details className="score-terms">
         <summary>Os nomes técnicos destes números</summary>
         <div className="formula-card two">
@@ -141,6 +144,7 @@ export function StageEval({ neural, relevance }: { neural: ((query: RQuery) => n
         </div>
         <p className="lab-note">MRR {m.mrr.toFixed(2).replace(".", ",")}: a média de 1 ÷ posição. Vale 1 se tudo viesse em 1º lugar.</p>
       </details>
+      )}
     </div>
   );
 }

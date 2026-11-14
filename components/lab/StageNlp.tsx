@@ -8,7 +8,7 @@ type Nlp = { original: string; lower: string; folded: string; tokens: string[]; 
 
 const appear = (index: number) => ({ initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, transition: { delay: index * 0.18, duration: 0.4, ease: [0.23, 1, 0.32, 1] as const } });
 
-export function StageNlp({ question }: { question: string }) {
+export function StageNlp({ question, deep = false }: { question: string; deep?: boolean }) {
   const [data, setData] = useState<Nlp | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -19,6 +19,32 @@ export function StageNlp({ question }: { question: string }) {
   if (error) return <p className="sheet-error">{error}</p>;
   if (!data) return <p className="lab-note">Processando a pergunta.</p>;
   const removed = new Set([...data.short_removed, ...data.stopwords_removed]);
+
+  // simples: três passos, sem nome técnico; os seis passos com tokenização e stemming ficam em "por dentro"
+  if (!deep) {
+    return (
+      <ol className="nlp-pipeline is-simple" key={question}>
+        <motion.li {...appear(0)}>
+          <span className="nlp-n">1</span>
+          <div><h3>Sua pergunta</h3><p className="nlp-text">{data.original}</p></div>
+        </motion.li>
+        <motion.li {...appear(1)}>
+          <span className="nlp-n">2</span>
+          <div>
+            <h3>Saem as palavras que não dizem o assunto</h3>
+            <div className="token-row">{data.tokens.map((token, index) => <span key={`${token}-${index}`} className={`token ${removed.has(token) ? "is-removed" : ""}`}>{token}</span>)}</div>
+          </div>
+        </motion.li>
+        <motion.li {...appear(2)}>
+          <span className="nlp-n">3</span>
+          <div>
+            <h3>Ficam as palavras-chave, que vão para a busca</h3>
+            <div className="token-row">{Array.from(new Set(data.tokens.filter((token) => !removed.has(token)))).map((word) => <span key={word} className="token is-term">{word}</span>)}</div>
+          </div>
+        </motion.li>
+      </ol>
+    );
+  }
 
   return (
     <ol className="nlp-pipeline" key={question}>

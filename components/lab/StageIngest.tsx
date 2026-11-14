@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/Icon";
 import { lectureLabel } from "@/lib/aster";
 import { labGet, type SearchResult } from "@/lib/lab";
 
@@ -16,7 +17,7 @@ function markRaw(text: string) {
   return parts.map((part, index) => (IS_CORRUPTED.test(part) ? <mark key={index} className="glyph-bad">{part}</mark> : <span key={index}>{part}</span>));
 }
 
-export function StageIngest({ search }: { search: SearchResult | null }) {
+export function StageIngest({ search, deep = false }: { search: SearchResult | null; deep?: boolean }) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [target, setTarget] = useState<{ doc: string; page: number } | null>(null);
   const [detail, setDetail] = useState<PageDetail | null>(null);
@@ -39,13 +40,17 @@ export function StageIngest({ search }: { search: SearchResult | null }) {
     <div className="stage-grid">
       {error && <p className="sheet-error">{error}</p>}
       {overview && (
-        <div className="ingest-flow">
-          {[
+        <div className={`ingest-flow ${deep ? "" : "is-simple"}`}>
+          {(deep ? [
             { value: overview.totals.documents, label: "PDFs das aulas" },
             { value: overview.totals.pages, label: "páginas lidas pelo PyMuPDF" },
             { value: overview.totals.passages, label: "trechos com id" },
             { value: overview.totals.avg_chars, label: "caracteres por trecho, em média" },
-          ].map((item, index) => (
+          ] : [
+            { value: overview.totals.documents, label: "aulas em PDF" },
+            { value: overview.totals.pages, label: "páginas lidas" },
+            { value: overview.totals.passages, label: "pedacinhos de texto" },
+          ]).map((item, index) => (
             <motion.div key={item.label} className="flow-step" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.12 }}>
               <strong>{item.value.toLocaleString("pt-BR")}</strong>
               <span>{item.label}</span>
@@ -54,7 +59,16 @@ export function StageIngest({ search }: { search: SearchResult | null }) {
         </div>
       )}
 
-      {overview && (
+      {/* simples: um pedacinho de verdade e o "endereço" que vira a citação na resposta */}
+      {!deep && detail?.passages[0] && (
+        <motion.div className="lab-card simple-example" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 }}>
+          <span className="simple-label">Um pedacinho de verdade</span>
+          <p className="simple-quote">“{detail.passages[0].quote}”</p>
+          <p className="simple-address"><span className="chip chip-aula"><Icon name="page" size={14} />{lectureLabel(detail.document_id, detail.page)}</span>é o endereço dele. É isso que aparece como citação na resposta.</p>
+        </motion.div>
+      )}
+
+      {deep && overview && (
         <figure className="lab-card">
           <figcaption>Trechos por aula. Clique para inspecionar a primeira página com texto.</figcaption>
           <ul className="doc-bars">
@@ -71,8 +85,8 @@ export function StageIngest({ search }: { search: SearchResult | null }) {
         </figure>
       )}
 
-      {search && search.candidates.length === 0 && <p className="lab-insight">A pergunta em análise não casa com nenhum trecho das aulas. Abaixo, um exemplo de página para ver como a extração funciona.</p>}
-      {detail && (
+      {deep && search && search.candidates.length === 0 && <p className="lab-insight">A pergunta em análise não casa com nenhum trecho das aulas. Abaixo, um exemplo de página para ver como a extração funciona.</p>}
+      {deep && detail && (
         <div className="ingest-page">
           <div className="lab-card">
             <h3>{lectureLabel(detail.document_id, detail.page)}: texto extraído do PDF</h3>

@@ -23,12 +23,37 @@ async def run_tutor(request: AskRequest):
     return StreamingResponse(with_heartbeat(events()),
                              media_type="text/event-stream")`;
 
-export function StageStream({ run, onRun }: { run: LabRun; onRun: () => void }) {
+export function StageStream({ run, onRun, deep = false }: { run: LabRun; onRun: () => void; deep?: boolean }) {
   const terminal = useRef<HTMLPreElement>(null);
   const lines = useMemo(() => (run.raw.length ? run.raw : run.events.map((event) => `data: ${JSON.stringify(event)}`)), [run.raw, run.events]);
   const total = Math.max(1, ...run.events.map((event) => event.t));
 
   useEffect(() => { terminal.current?.scrollTo({ top: terminal.current.scrollHeight }); }, [lines.length]);
+
+  // simples: só a linha do tempo, com legenda em português; o código e o fluxo cru ficam em "por dentro"
+  if (!deep) {
+    const seconds = run.events.length ? (total / 1000).toFixed(1).replace(".", ",") : "0";
+    return (
+      <div className="lab-card stream-simple">
+        <div className="sheet-row">
+          <h3>{run.events.length ? `${run.events.length} mensagens em ${seconds} s, todas pela mesma conexão` : "Rode uma pergunta e veja as mensagens chegando"}</h3>
+          <button type="button" className="secondary-button" onClick={onRun} disabled={run.status === "running"}><Icon name="play" size={15} />{run.status === "running" ? "Recebendo" : "Rodar ao vivo"}</button>
+        </div>
+        <div className="timeline is-big" aria-label="Mensagens ao longo do tempo">
+          {run.events.map((event) => (
+            <motion.span key={event.seq} className="timeline-tick" style={{ left: `${(event.t / total) * 100}%`, background: COLORS[event.type] ?? "#9db8de" }} initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} />
+          ))}
+        </div>
+        <ul className="stream-legend">
+          <li><i style={{ background: "#9db8de" }} />pensando</li>
+          <li><i style={{ background: "#d5ff6e" }} />pesquisando nas aulas</li>
+          <li><i style={{ background: "#ff9b57" }} />pesquisando na web</li>
+          <li><i style={{ background: "#7ee08f" }} />resposta pronta</li>
+        </ul>
+        <p className="lab-note">Cada risco é uma mensagem que chegou na tela. Os espaços vazios são a IA pensando: por isso a tela mostra cada passo na hora, em vez de deixar você esperando no escuro.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="stream-grid">

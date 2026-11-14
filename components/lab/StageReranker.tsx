@@ -68,7 +68,7 @@ function layout(sizes: number[]) {
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 const num = (value: number) => value.toFixed(2).replace(".", ",");
 
-export function StageReranker({ onModel, onData }: { onModel?: (rank: ((query: RQuery) => number | null) | null) => void; onData?: (queries: RQuery[]) => void }) {
+export function StageReranker({ onModel, onData, deep = false }: { onModel?: (rank: ((query: RQuery) => number | null) | null) => void; onData?: (queries: RQuery[]) => void ; deep?: boolean }) {
   const [data, setData] = useState<Relevance | null>(null);
   const [error, setError] = useState("");
   const [hidden, setHidden] = useState(1);
@@ -242,7 +242,7 @@ export function StageReranker({ onModel, onData }: { onModel?: (rank: ((query: R
   const neuralRank = selected ? ranks.neural[focus] : null;
 
   return (
-    <div className="lab-demo neural">
+    <div className={`lab-demo neural ${deep ? "" : "is-simple"}`}>
       <div className="neural-controls">
         <p className="lab-note">Dados reais: {data.queries.length} perguntas com a página certa conhecida, {data.queries.reduce((sum, query) => sum + query.candidates.length, 0)} trechos candidatos vindos da busca do Aster.</p>
         <fieldset className="lab-field">
@@ -271,8 +271,8 @@ export function StageReranker({ onModel, onData }: { onModel?: (rank: ((query: R
           <button type="button" className="primary-button" onClick={() => { token.current++; setStage(null); setPulse(null); setBatch([]); setRunning((value) => !value); }}>
             <Icon name={running ? "pause" : "play"} size={17} />{running ? "Pausar" : epoch ? "Continuar" : "Treinar"}
           </button>
-          <button type="button" className="secondary-button" onClick={stepThrough} disabled={stage !== null}>Passo a passo</button>
-          <button type="button" className="secondary-button" onClick={() => setSeed((value) => value + 1)}><Icon name="replay" size={16} />Novos pesos</button>
+          {deep && <button type="button" className="secondary-button" onClick={stepThrough} disabled={stage !== null}>Passo a passo</button>}
+          <button type="button" className="secondary-button" onClick={() => setSeed((value) => value + 1)}><Icon name="replay" size={16} />{deep ? "Novos pesos" : "Começar do zero"}</button>
         </div>
       </div>
 
@@ -308,6 +308,7 @@ export function StageReranker({ onModel, onData }: { onModel?: (rank: ((query: R
           }))}
           {stage === 2 && <g className="nn-loss-bubble"><rect x={W - 160} y={H / 2 - 62} width="130" height="34" rx="10" /><text x={W - 95} y={H / 2 - 40}>erro {num(currentLoss)}</text></g>}
         </svg>
+        {!deep && <p className="neural-simple-note">Cada bolinha é um neurônio. Ele olha duas coisas de cada pedacinho (as palavras-chave no texto e no título) e responde se é o pedacinho certo. Linhas verdes reforçam, laranjas enfraquecem. Clique em Treinar e veja as linhas mudando enquanto ela aprende.</p>}
         <ol className="loop-strip" aria-label="Loop de treinamento da Aula 3, página 16">
           {LOOP.map((item, index) => <li key={item.title} className={stage === index ? "is-active" : stage !== null && index < stage ? "is-done" : ""}><span className="loop-n">{index + 1}</span><strong>{item.title}</strong></li>)}
         </ol>
@@ -341,8 +342,8 @@ export function StageReranker({ onModel, onData }: { onModel?: (rank: ((query: R
         </dl>
         <svg className="loss-chart" viewBox="0 0 220 62" preserveAspectRatio="none" aria-label="Erro da rede caindo a cada rodada de treino"><path d={lossPath} /></svg>
         <div className="lab-card compare">
-          <p><span>Busca do Aster</span><strong>{pct(recallAt(ranks.lexical, 1))}</strong><small>acerta a página em 1º</small></p>
-          <p><span>Com a rede</span><strong className={recallAt(ranks.neural, 1) > recallAt(ranks.lexical, 1) ? "is-up" : ""}>{pct(recallAt(ranks.neural, 1))}</strong><small>nas perguntas que ela já viu</small></p>
+          <p><span>Busca do Aster</span><strong>{pct(recallAt(ranks.lexical, 1))}</strong><small>{deep ? "acerta a página em 1º" : "acerta de primeira"}</small></p>
+          <p><span>Com a rede</span><strong className={recallAt(ranks.neural, 1) > recallAt(ranks.lexical, 1) ? "is-up" : ""}>{pct(recallAt(ranks.neural, 1))}</strong><small>{deep ? "nas perguntas que ela já viu" : epoch ? "depois de treinar" : "antes de treinar, chutando"}</small></p>
           <button type="button" className="secondary-button" onClick={leaveOneOut} disabled={!!loo && loo.progress < 1}>
             {loo && loo.progress < 1 ? `Validando ${Math.round(loo.progress * 100)}%` : "Testar com perguntas novas"}
           </button>

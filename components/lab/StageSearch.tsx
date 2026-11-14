@@ -15,9 +15,42 @@ function highlight(text: string, terms: string[]) {
   });
 }
 
-export function StageSearch({ search, question }: { search: SearchResult | null; question: string }) {
+export function StageSearch({ search, question, deep = false }: { search: SearchResult | null; question: string; deep?: boolean }) {
   if (!search) return <p className="lab-note">Buscando.</p>;
   const top = Math.max(0.001, ...search.candidates.map((item) => item.score));
+
+  // simples: quantos pedacinhos têm as palavras, e os 3 melhores com a barra da nota
+  if (!deep) {
+    return (
+      <div className="stage-grid">
+        <div className="search-summary is-simple">
+          <div className="flow-step"><strong>{search.total.toLocaleString("pt-BR")}</strong><span>pedacinhos nas aulas</span></div>
+          <div className="flow-step"><strong>{search.matched.toLocaleString("pt-BR")}</strong><span>têm alguma palavra-chave</span></div>
+          <div className="flow-step is-lime"><strong>{Math.min(3, search.candidates.length)}</strong><span>melhores notas, abaixo</span></div>
+        </div>
+        {search.candidates.length === 0 && <p className="lab-insight">Nenhum pedacinho das aulas tem as palavras-chave. Nesse caso o Aster vai procurar na web.</p>}
+        <ol className="candidate-list is-simple" key={question}>
+          {search.candidates.slice(0, 3).map((item, index) => (
+            <motion.li key={item.id} className="candidate" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + index * 0.1 }}>
+              <span className="candidate-rank">{index + 1}</span>
+              <div className="candidate-body">
+                <div className="candidate-head">
+                  <Link className="chip chip-aula" href={`/?source=${item.document_id}&page=${item.page}&q=${encodeURIComponent(question)}`}>{lectureLabel(item.document_id, item.page)}</Link>
+                  <span className="candidate-heading">{item.heading}</span>
+                </div>
+                <p className="candidate-quote">{highlight(item.quote, item.content_terms)}</p>
+              </div>
+              <div className="candidate-score">
+                <span className="score-track"><motion.i initial={{ scaleX: 0 }} animate={{ scaleX: item.score / top }} transition={{ delay: 0.4 + index * 0.1, duration: 0.5 }} /></span>
+              </div>
+            </motion.li>
+          ))}
+        </ol>
+        <p className="lab-insight is-warn">O ponto fraco: se a aula usa outra palavra com o mesmo sentido, essa busca não acha. É o que a próxima etapa resolve.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="stage-grid">
       <div className="search-summary">
