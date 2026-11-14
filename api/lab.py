@@ -217,7 +217,7 @@ def scope(q: str = ""):
     question = " ".join(q.split())[:500]
     if len(question) < 2:
         return {"ok": False, "reason": "short", "message": "Digite uma pergunta sobre a matéria."}
-    if main.OVERRIDE.search(question):
+    if main.tries_override(question):
         return {"ok": False, "reason": "override", "message": "Essa pergunta tenta mudar as regras do Aster. Use uma dúvida da matéria."}
     if main.is_small_talk(question):
         return {"ok": False, "reason": "small_talk", "message": "Isso é uma conversa, não uma dúvida. O Laboratório mostra o caminho de uma pergunta sobre a matéria."}

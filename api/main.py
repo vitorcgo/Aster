@@ -9,7 +9,6 @@ import threading
 import time
 import unicodedata
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, AsyncIterator
 from uuid import uuid4
 
@@ -824,22 +823,44 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
 
 
 # Pedidos para desligar as regras. Barrados antes de chegar ao modelo: modelos leves às vezes obedecem.
+# São padrões de ordem dirigida ao Aster ("não siga nenhuma regra", "ignore suas instruções"), para não barrar
+# perguntas da matéria que só citam esses verbos ("como desativar um sistema", "o que é prompt injection").
 OVERRIDE = re.compile(
-    r"(ignor\w*|esque[cç]\w*|desconsider\w*|n[aã]o (siga|obede[cç]a|respeite|use)|sem (seguir|obedecer)|desativ\w*|burl\w*|quebr\w*|pul\w*)"
-    r"[^.?!]{0,40}(regra|instru[cç]|configura|prompt|sistema|restri[cç]|limite|diretriz|filtro)"
-    r"|(modo|aja como|finja|fa[cç]a de conta|voc[eê] agora [eé])[^.?!]{0,30}(desenvolvedor|developer|dan|sem regras|sem limites|livre|jailbreak)"
-    r"|(mostre|revele|repita|imprima|qual [eé])[^.?!]{0,25}(seu|o) (prompt|system prompt|instru[cç])",
+    r"\b(ignor[ae]\w*|esque[cç]a\w*|desconsider[ae]\w*|n[aã]o (siga|obede[cç]a|respeite|use|considere)|sem (seguir|obedecer|respeitar))\b"
+    r"[^.?!]{0,30}?\b(suas?|tuas?|as|os|essas?|estas?|todas? as|quaisquer|qualquer|nenhuma|minhas?)\s+(regras?|instru[cç][oõ]es|configura[cç][oõ]es|diretrizes|restri[cç][oõ]es|ordens)"
+    r"|\b(aja como|finja (que|ser)|fa[cç]a de conta|voc[eê] agora [eé]|entre no modo|ative o modo)\b[^.?!]{0,30}(desenvolvedor|developer|\bdan\b|sem regras|sem limites|sem restri[cç]|jailbreak)"
+    r"|\b(mostre|revele|repita|imprima|me (diga|passe|mande))\b[^.?!]{0,20}\b(seu|teu|o) (prompt|system prompt|prompt do sistema|instru[cç][oõ]es (internas|do sistema))",
     re.I,
 )
+# Quem pergunta sobre o assunto (prompt injection é matéria) não está tentando burlar: segue para o agente,
+# que também tem a regra de não obedecer.
+ABOUT_INJECTION = re.compile(r"\b(o que [eé]|como funciona|como (se )?protege|como evitar|por que|exemplo de)\b[^?]{0,60}\b(prompt injection|inje[cç][aã]o de prompt|jailbreak)", re.I)
+
+
+INTERROGATIVE = re.compile(r"^\s*(por qu[eê]|porque|como|o que|quando|qual|quais|onde|quem|existe)\b", re.I)
+TO_ASTER = re.compile(r"\b(voc[eê]|vc|tu|aster)\b", re.I)
+
+
+def tries_override(text: str) -> bool:
+    if not OVERRIDE.search(text) or ABOUT_INJECTION.search(text):
+        return False
+    # "por que o modelo ignora as instruções?" é dúvida; "por que você não ignora suas regras?" não é
+    return not (INTERROGATIVE.match(text) and not TO_ASTER.search(text))
+
+
+# O aluno falando de si ("me chamo Vitor", "prefiro exemplos em Python"): conversa leve, onde o Aster pode guardar na memória.
+PERSONAL = re.compile(r"\b(me chamo|meu nome [eé]|eu sou|sou (o|a|do|da|de)|eu estudo|estudo (no|na|em)|fa[cç]o (o curso|faculdade)|prefiro|gosto (de|mais)|lembr[ae] (que|de)|guarda|anota|n[aã]o esque[cç]a)\b", re.I)
+
 
 # Termos de IA que contam como matéria mesmo quando a pergunta não bate com nenhum slide.
 AI_VOCABULARY = {
-    "ia", "ai", "inteligencia", "artificial", "machine", "learning", "aprendizado", "modelo", "modelos", "rede", "redes", "neural", "neurais",
+    # palavras genéricas demais ("ai" de "aí", "dados", "rede", "modelo") ficam de fora: a busca nos slides cobre esses casos
+    "ia", "inteligencia", "artificial", "machine", "learning", "aprendizado", "neural", "neurais",
     "llm", "gpt", "chatgpt", "gemini", "claude", "transformer", "transformers", "atencao", "embedding", "embeddings", "token", "tokens",
     "rag", "agente", "agentes", "prompt", "algoritmo", "algoritmos", "dados", "dataset", "treino", "treinamento", "classificacao",
     "regressao", "cluster", "clustering", "overfitting", "underfitting", "acuracia", "precisao", "recall", "pln", "nlp", "visao",
-    "computacional", "cnn", "rnn", "lstm", "gan", "difusao", "recomendacao", "chatbot", "bot", "robo", "turing", "deep", "profundo",
-    "supervisionado", "reforco", "vetorial", "vetor", "vetores", "api", "fastapi", "python", "tensorflow", "pytorch", "lgpd", "etica",
+    "computacional", "cnn", "rnn", "lstm", "gan", "difusao", "recomendacao", "chatbot", "turing", "deep",
+    "supervisionado", "reforco", "vetorial", "fastapi", "python", "tensorflow", "pytorch", "lgpd", "etica",
     "vies", "governanca", "regulacao", "deploy", "inferencia", "parametro", "parametros", "gradiente", "perceptron", "mlp", "ativacao",
 }
 
@@ -850,12 +871,19 @@ def mentions_ai(text: str) -> bool:
     return any(word in AI_VOCABULARY for word in re.findall(r"[a-z]+", normalized))
 
 
+FOLLOW_UP = re.compile(
+    r"^\s*(e|mas|ent[aã]o|explica|explique|como assim|por qu[eê]|pq|me d[aá]|d[aá] (um )?exemplo|exemplo|resume|resuma|mais|outro|outra|isso|aquilo|continua|continue|detalha|detalhe|n[aã]o entendi|traduz|simplifica|de novo)\b",
+    re.I,
+)
+
+
 def in_scope(request: "AskRequest") -> bool:
     """A pergunta é da matéria? Vale se bater com algum slide, se falar de IA, ou se continuar uma conversa da matéria."""
     if mentions_ai(request.question) or search(request.question, limit=1) or search_relaxed(request.question, limit=1):
         return True
-    # "explica melhor", "e o outro?": continuação da conversa, cujo assunto já foi conferido
-    return bool(request.context) and len(terms(request.question)) <= 3
+    # "explica melhor", "e o outro?": continuação curta da conversa, cujo assunto já foi conferido.
+    # Só vale com cara de continuação: "me fala a receita de bolo" depois de uma dúvida da matéria não passa.
+    return bool(request.context) and len(terms(request.question)) <= 4 and bool(FOLLOW_UP.match(request.question))
 
 
 SCOPE_REPLY = "Isso foge da matéria, então não vou pesquisar. Eu só respondo sobre os assuntos das aulas de Inteligência Artificial. Quer perguntar algo dos slides? Posso explicar overfitting, embeddings, RAG ou agentes, por exemplo."
@@ -1134,9 +1162,12 @@ async def run_tutor(request: AskRequest, http_request: Request):
     request = request.model_copy(update={"question": question, "context": context, "memory": memory})
     light = is_small_talk(question)
     # portões no servidor: valem mesmo se o modelo estiver disposto a obedecer
-    guard = "override" if OVERRIDE.search(question) else None
+    guard = "override" if tries_override(question) else None
     if not guard and not light and not in_scope(request):
-        guard = "scope"
+        if PERSONAL.search(question):
+            light = True
+        else:
+            guard = "scope"
     masked = list(dict.fromkeys(masked))
     run_id = str(uuid4())
     started = time.perf_counter()
