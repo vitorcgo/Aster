@@ -60,7 +60,7 @@ export type TraceNode =
   | { kind: "read"; id: string; aula: string; page: number; intent: string; payload: PagePayload | null }
   | { kind: "web"; id: string; query: string; intent: string; provider: string | null; results: WebSource[] | null }
   | { kind: "check"; id: string; ok: boolean | null; message: string }
-  | { kind: "fallback"; id: string; model: string }
+  | { kind: "fallback"; id: string; model: string; tried: string[] }
   | { kind: "answer"; id: string; citations: number; chat: boolean }
   | { kind: "stop"; id: string; tone: "empty" | "error"; message: string };
 
@@ -162,8 +162,15 @@ export function applyEvent(turn: Turn, event: RunEvent): Turn {
       };
     case "answer_check":
       return { ...next, nodes: patchNode(turn.nodes, data.call_id, (node) => (node.kind === "check" ? { ...node, ok: !!data.ok, message: String(data.message ?? "") } : node)) };
-    case "model_fallback":
-      return { ...next, usedFallback: true, model: data.model ?? turn.model, nodes: [...turn.nodes, { kind: "fallback", id: `fb-${event.seq}`, model: String(data.model ?? "") }] };
+    case "model_fallback": {
+      // várias trocas seguidas viram um bloco só, com a lista de modelos tentados
+      const previous = turn.nodes.findLast((node) => node.kind === "fallback") as Extract<TraceNode, { kind: "fallback" }> | undefined;
+      const onlyQuestionSince = previous && turn.nodes.indexOf(previous) === turn.nodes.length - 1;
+      if (previous && onlyQuestionSince) {
+        return { ...next, usedFallback: true, model: data.model ?? turn.model, nodes: patchNode(turn.nodes, previous.id, () => ({ ...previous, model: String(data.model ?? ""), tried: [...previous.tried, previous.model] })) };
+      }
+      return { ...next, usedFallback: true, model: data.model ?? turn.model, nodes: [...turn.nodes, { kind: "fallback", id: `fb-${event.seq}`, model: String(data.model ?? ""), tried: turn.model ? [turn.model] : [] }] };
+    }
     case "answer_ready": {
       const sources: Source[] = (data.sources ?? []).map(normalizeSource);
       const seen = { ...turn.seen };

@@ -233,9 +233,13 @@ export function Studio({ active = true }: { active?: boolean }) {
       case "answer_check":
         point(`node-${data.call_id}`, data.ok ? "Fontes conferidas" : "Recusada, corrigindo");
         break;
-      case "model_fallback":
-        await drawNode(`fb-${event.seq}`, "Trocando para o modelo reserva");
+      case "model_fallback": {
+        const fallback = after.nodes.findLast((node) => node.kind === "fallback");
+        // se a troca só atualizou o bloco de troca já desenhado, o cursor apenas aponta para ele
+        if (fallback && fallback.id !== `fb-${event.seq}`) point(`node-${fallback.id}`, `Tentando ${String(data.model ?? "o reserva")}`);
+        else await drawNode(`fb-${event.seq}`, "Trocando para o modelo reserva");
         break;
+      }
       case "answer_ready": {
         setScanning(false);
         setHoldId(turnId);
