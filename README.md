@@ -52,16 +52,20 @@ O botão de modelo na barra superior abre o painel **Modelos de IA**. Nele dá p
 
 Sem fila salva, vale a ordem do `.env` (`GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` e `GEMINI_LAST_RESORT`). As chaves também podem vir de `OPENAI_API_KEY` e `NVIDIA_API_KEY`.
 
-## Laboratório
+## Laboratório: por dentro do Aster
 
-A rota `/laboratorio` reúne demonstrações interativas do que foi ensinado em aula, cada uma ligada às páginas de origem:
+A rota `/laboratorio` mostra, com os dados reais do sistema, o caminho de uma pergunta dentro do Aster. Cada etapa é explicada pela aula correspondente e usa a última pergunta feita na tela Estudar (ou outra digitada ali):
 
-- **Rede neural** (Aula 3): uma MLP treinando no navegador, com forward pass, perda, backpropagation e θ ← θ − α∇J. Sem camada oculta ela vira um perceptron e não resolve o XOR, como na p. 4.
-- **Convolução e pooling** (Aula 3): filtro 3 × 3 deslizando, padding, stride e max-pooling.
-- **Embeddings** (Aula 6): Rei − Homem + Mulher ≈ Rainha num mapa vetorial ilustrativo.
-- **Overfitting** (Aula 2): o erro de validação dispara quando o modelo decora o ruído.
+1. **Ingestão e chunking** (Aula 6, p. 33-34): os 12 PDFs viram 499 páginas e 2.277 trechos; mostra o texto cru do PyMuPDF, os caracteres corrompidos corrigidos e os trechos com id.
+2. **PLN da pergunta** (Aula 4, p. 6-9): normalização, tokenização, stopwords e stemming, com as mesmas funções da busca.
+3. **Busca e ranking** (Aula 6, p. 24): a pontuação de cada candidato e o “problema do lexical”.
+4. **Embeddings** (Aula 6, p. 25-27): vetores reais do `gemini-embedding-001`, similaridade de cosseno e comparação com a ordem lexical.
+5. **Rede neural reranker** (Aula 3 e Aula 10, p. 22): uma MLP treinada no navegador com os pares reais de pergunta e trecho, com validação que deixa cada pergunta de fora.
+6. **Agente e ferramentas** (Aula 6, p. 8; Aula 10, p. 9-13): o system prompt real marcado por papel, restrições, formato e tom, as ferramentas do function calling e o ciclo ReAct da consulta.
+7. **Streaming com SSE** (Aula 7, p. 16-22): o modelo Pydantic, a `StreamingResponse` e os eventos crus com o tempo de cada um.
+8. **Avaliação** (Aula 2, p. 31-33): recall, precisão e MRR da busca em 26 perguntas com a página certa conferida (`api/eval_set.py`).
 
-Quando o Aster cita uma dessas páginas, a resposta oferece abrir a demonstração correspondente.
+Quando o Aster cita uma página coberta por uma etapa, a resposta oferece abri-la no Laboratório.
 
 ## Modelos e erros
 
