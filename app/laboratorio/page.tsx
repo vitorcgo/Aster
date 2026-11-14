@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Icon } from "@/components/Icon";
 import { Landscape } from "@/components/Landscape";
 import { TopBar } from "@/components/TopBar";
@@ -26,6 +26,9 @@ export default function Laboratorio() {
   const [run, setRun] = useState<LabRun>({ question: "", events: [], raw: [], status: "idle", live: false });
   const [neural, setNeural] = useState<((query: RQuery) => number | null) | null>(null);
   const [relevance, setRelevance] = useState<RQuery[] | null>(null);
+  const runAbort = useRef<AbortController | null>(null);
+
+  useEffect(() => () => runAbort.current?.abort(), []);
 
   useEffect(() => {
     const parameters = new URLSearchParams(window.location.search);
@@ -38,6 +41,7 @@ export default function Laboratorio() {
 
   useEffect(() => {
     if (!question) return;
+    runAbort.current?.abort();
     setSearch(null);
     setSearchError("");
     labGet<SearchResult>(`/api/lab/search?q=${encodeURIComponent(question)}&limit=10`).then(setSearch).catch((problem: Error) => setSearchError(problem.message));
@@ -58,9 +62,12 @@ export default function Laboratorio() {
 
   // roda a pergunta no agente de verdade e guarda as linhas cruas do SSE
   const runAgent = useCallback(async () => {
+    runAbort.current?.abort();
+    const abort = new AbortController();
+    runAbort.current = abort;
     setRun({ question, events: [], raw: [], status: "running", live: true });
     try {
-      const response = await fetch("/api/tutor/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
+      const response = await fetch("/api/tutor/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }), signal: abort.signal });
       if (!response.ok || !response.body) throw new Error("Não consegui falar com a API do Aster.");
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -80,6 +87,7 @@ export default function Laboratorio() {
       }
       setRun((current) => ({ ...current, status: "done" }));
     } catch (problem) {
+      if (abort.signal.aborted) return;
       setRun((current) => ({ ...current, status: "error", message: (problem as Error).message }));
     }
   }, [question]);
