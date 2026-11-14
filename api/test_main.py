@@ -241,3 +241,13 @@ class LabTest(unittest.TestCase):
         data = self.client.get("/api/lab/agent").json()
         self.assertIn("Você é o Aster", data["system_prompt"])
         self.assertIn("buscar_nas_aulas", [tool["name"] for tool in data["tools"]])
+
+
+class LocalOnlyTest(unittest.TestCase):
+    def test_settings_changes_refuse_requests_from_the_network(self):
+        client = TestClient(app)
+        with patch.dict(os.environ, {"ASTER_SETTINGS": os.path.join(tempfile.gettempdir(), "aster-settings-test.json")}):
+            response = client.put("/api/settings/chain", json={"chain": []}, headers={"X-Forwarded-For": "192.168.0.9"})
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json()["detail"]["code"], "local_only")
+            self.assertEqual(client.put("/api/settings/chain", json={"chain": []}).status_code, 200)

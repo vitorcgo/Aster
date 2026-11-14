@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import math
 import os
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 import pymupdf
@@ -789,13 +790,14 @@ async def run_local(request: AskRequest, emit) -> AsyncIterator[str]:
 
 # ---------------------------------------------------------------- rotas
 
-app = FastAPI(title="Aster API")
-
-
-@app.on_event("startup")
-def warm_library() -> None:
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     # Ler os PDFs leva alguns segundos; fazemos isso antes da primeira pergunta.
     threading.Thread(target=library, name="aster-index", daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Aster API", lifespan=lifespan)
 
 
 @app.get("/api/health")
@@ -850,13 +852,33 @@ def settings_view() -> dict:
     return {"providers": providers, "chain": chain, "custom_chain": bool(saved.get("chain")), "default_chain": [spec.public() for spec in default_chain()]}
 
 
+LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def is_local(host: str) -> bool:
+    host = host.strip().lower()
+    return host in LOCAL_HOSTS or host.startswith("127.") or host.startswith("::ffff:127.")
+
+
+def require_local(request: Request) -> None:
+    """Chaves e fila só mudam no próprio computador.
+    Atenção: o rewrite do Next não repassa o IP de quem acessou, então isto só protege a API
+    quando ela é exposta direto. A proteção real é o `npm run dev` escutar apenas 127.0.0.1."""
+    hosts = [part for part in request.headers.get("x-forwarded-for", "").split(",") if part.strip()]
+    if request.client:
+        hosts.append(request.client.host)
+    if not all(is_local(host) for host in hosts):
+        raise HTTPException(status_code=403, detail={"code": "local_only", "message": "Chaves e fila de modelos só podem ser alteradas no computador onde o Aster está rodando."})
+
+
 @app.get("/api/settings")
 def get_settings():
     return settings_view()
 
 
 @app.put("/api/settings/keys/{provider}")
-def put_key(provider: str, body: KeyBody):
+def put_key(provider: str, body: KeyBody, request: Request):
+    require_local(request)
     require_provider(provider)
     data = load_settings()
     data.setdefault("keys", {})[provider] = body.key.strip()
@@ -867,7 +889,8 @@ def put_key(provider: str, body: KeyBody):
 
 
 @app.delete("/api/settings/keys/{provider}")
-def delete_key(provider: str):
+def delete_key(provider: str, request: Request):
+    require_local(request)
     require_provider(provider)
     data = load_settings()
     data.get("keys", {}).pop(provider, None)
@@ -876,7 +899,8 @@ def delete_key(provider: str):
 
 
 @app.put("/api/settings/chain")
-def put_chain(body: ChainBody):
+def put_chain(body: ChainBody, request: Request):
+    require_local(request)
     for item in body.chain:
         require_provider(item.provider)
     data = load_settings()
