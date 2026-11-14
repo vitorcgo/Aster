@@ -306,7 +306,7 @@ export function StageReranker({ onModel, onData }: { onModel?: (rank: ((query: R
               </g>
             );
           }))}
-          {stage === 2 && <g className="nn-loss-bubble"><rect x={W - 160} y={H / 2 - 62} width="130" height="34" rx="10" /><text x={W - 95} y={H / 2 - 40}>perda {num(currentLoss)}</text></g>}
+          {stage === 2 && <g className="nn-loss-bubble"><rect x={W - 160} y={H / 2 - 62} width="130" height="34" rx="10" /><text x={W - 95} y={H / 2 - 40}>erro {num(currentLoss)}</text></g>}
         </svg>
         <ol className="loop-strip" aria-label="Loop de treinamento da Aula 3, página 16">
           {LOOP.map((item, index) => <li key={item.title} className={stage === index ? "is-active" : stage !== null && index < stage ? "is-done" : ""}><span className="loop-n">{index + 1}</span><strong>{item.title}</strong></li>)}
@@ -335,18 +335,18 @@ export function StageReranker({ onModel, onData }: { onModel?: (rank: ((query: R
           <p className="boundary-note">Laranja: trecho da página certa. Azul: outros. Para cima, mais termos da pergunta no título do slide. Em verde, a pergunta escolhida.</p>
         </div>
         <dl className="neural-stats">
-          <div><dt>Época</dt><dd>{epoch}</dd></div>
-          <div><dt>Perda</dt><dd>{num(currentLoss)}</dd></div>
-          <div><dt>Recall@1</dt><dd>{pct(recallAt(ranks.neural, 1))}</dd></div>
+          <div><dt>Rodadas de treino</dt><dd>{epoch}</dd></div>
+          <div><dt>Erro da rede</dt><dd>{num(currentLoss)}</dd></div>
+          <div><dt>Acerta de primeira</dt><dd>{pct(recallAt(ranks.neural, 1))}</dd></div>
         </dl>
-        <svg className="loss-chart" viewBox="0 0 220 62" preserveAspectRatio="none" aria-label="Perda ao longo das épocas"><path d={lossPath} /></svg>
+        <svg className="loss-chart" viewBox="0 0 220 62" preserveAspectRatio="none" aria-label="Erro da rede caindo a cada rodada de treino"><path d={lossPath} /></svg>
         <div className="lab-card compare">
           <p><span>Busca do Aster</span><strong>{pct(recallAt(ranks.lexical, 1))}</strong><small>acerta a página em 1º</small></p>
-          <p><span>Com a rede</span><strong className={recallAt(ranks.neural, 1) > recallAt(ranks.lexical, 1) ? "is-up" : ""}>{pct(recallAt(ranks.neural, 1))}</strong><small>nas mesmas perguntas do treino</small></p>
+          <p><span>Com a rede</span><strong className={recallAt(ranks.neural, 1) > recallAt(ranks.lexical, 1) ? "is-up" : ""}>{pct(recallAt(ranks.neural, 1))}</strong><small>nas perguntas que ela já viu</small></p>
           <button type="button" className="secondary-button" onClick={leaveOneOut} disabled={!!loo && loo.progress < 1}>
-            {loo && loo.progress < 1 ? `Validando ${Math.round(loo.progress * 100)}%` : "Validação justa"}
+            {loo && loo.progress < 1 ? `Validando ${Math.round(loo.progress * 100)}%` : "Testar com perguntas novas"}
           </button>
-          {loo?.recall1 !== undefined && <p className="lab-note">Deixando cada pergunta fora do treino: recall@1 {pct(loo.recall1)} e recall@3 {pct(loo.recall3 ?? 0)}. Esse é o número honesto; treinar e testar nas mesmas perguntas seria overfitting (Aula 2, p. 22).</p>}
+          {loo?.recall1 !== undefined && <p className="lab-note">Escondendo cada pergunta do treino e testando nela depois: acerta de primeira em {pct(loo.recall1)} e fica entre as 3 primeiras em {pct(loo.recall3 ?? 0)}. Esse é o número honesto, porque testar nas perguntas que a rede já viu seria colar na prova (overfitting, Aula 2, p. 22).</p>}
         </div>
       </div>
     </div>
