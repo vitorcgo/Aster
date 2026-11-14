@@ -28,3 +28,6 @@ build/
 coverage/
 playwright-report/
 test-results/
+
+# Gerado pelo Next a cada execução
+next-env.d.ts
