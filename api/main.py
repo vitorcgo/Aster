@@ -988,3 +988,7 @@ async def run_tutor(request: AskRequest, http_request: Request):
 from api.lab import router as lab_router  # noqa: E402
 
 app.include_router(lab_router)
+
+from api.simulado import router as simulado_router  # noqa: E402
+
+app.include_router(simulado_router)

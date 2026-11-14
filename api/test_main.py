@@ -395,3 +395,50 @@ class SecurityTest(unittest.TestCase):
         self.assertEqual((big.status_code, big.json()["detail"]["code"]), (413, "payload_too_large"))
         broken = self.client.post("/api/tutor/runs", content=b"{", headers={"Content-Type": "application/json"})
         self.assertEqual(broken.status_code, 400)
+
+
+class SimuladoTest(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+        security.ask_limiter.reset()
+
+    def entry(self, **changes):
+        base = {"numero": 1, "enunciado": "Uma equipe avalia um agente de IA em produção e precisa decidir o próximo passo. O que fazer?",
+                "alternativas": ["um", "dois", "três", "quatro", "cinco"], "correta": "B",
+                "comentarios": ["Errada: a.", "Correta: b.", "Errada: c.", "Errada: d.", "Errada: e."], "pagina": 4, "tema": "agentes"}
+        return {**base, **changes}
+
+    def test_validation_keeps_answer_aligned_after_shuffle(self):
+        import random
+        from api import simulado
+        items = [{"n": 1, "document_id": "aula-9", "pages": [3, 4, 5], "format": "caso"}]
+        with patch("api.simulado.library") as lib:
+            lib.return_value.pages = {}
+            for seed in range(5):
+                question = simulado.validate([self.entry()], items, random.Random(seed))[0]
+                self.assertEqual(question["options"][question["answer"]], "dois")
+                self.assertTrue(question["comments"][question["answer"]].startswith("Correta"))
+                self.assertEqual(question["source"], {"document_id": "aula-9", "page": 4, "query": "agentes"})
+
+    def test_validation_trusts_comments_and_drops_broken_questions(self):
+        import random
+        from api import simulado
+        items = [{"n": 1, "document_id": "aula-9", "pages": [3, 4, 5], "format": "assercao"}]
+        rng = random.Random(1)
+        # letra diz A, comentários dizem B: vale o comentário
+        fixed = simulado.validate([self.entry(correta="A")], items, rng)
+        self.assertEqual(fixed[0]["answer"], 1)
+        self.assertEqual(simulado.validate([self.entry(alternativas=["um", "dois", "três", "quatro"])], items, rng), [])
+        self.assertEqual(simulado.validate([self.entry(comentarios=["Correta.", "Correta.", "Errada.", "Errada.", "Errada."])], items, rng), [])
+        self.assertEqual(simulado.validate([self.entry(numero=9)], items, rng), [])
+
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_recent_scope_uses_only_the_last_four_lectures(self):
+        from api import simulado
+        self.assertEqual(simulado.lecture_ids("recentes"), ["aula-9", "aula-10", "aula-11", "aula-12"])
+        self.assertEqual(len(simulado.lecture_ids("todas")), 12)
+        with patch("api.simulado.generate", return_value=([], None)), patch("api.main.agent_models", return_value=("x",)):
+            events = parse_events(self.client.post("/api/simulado/runs", json={"scope": "recentes", "count": 5}))
+        self.assertEqual([event["type"] for event in events], ["plan", "failed"])
+        self.assertTrue(all(item["document_id"] in {"aula-9", "aula-10", "aula-11", "aula-12"} for item in events[0]["data"]["items"]))
+        self.assertEqual(len(events[0]["data"]["items"]), 5)
