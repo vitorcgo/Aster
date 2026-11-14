@@ -290,11 +290,22 @@ def evidence_index() -> tuple[Evidence, ...]:
     return library().passages
 
 
-def search(query: str, document_id: str | None = None, limit: int = SEARCH_LIMIT) -> list[Evidence]:
+@dataclass(frozen=True)
+class Scored:
+    """Um trecho candidato e as partes da pontuação lexical, para a busca e para o Laboratório."""
+    item: Evidence
+    score: float
+    content: frozenset[str]
+    heading: frozenset[str]
+    coverage: float
+    length: int
+
+
+def rank_candidates(query: str, document_id: str | None = None, limit: int = SEARCH_LIMIT, per_page_limit: int = 2) -> list[Scored]:
     wanted = terms(query)
     if not wanted:
         return []
-    ranked = []
+    ranked: list[Scored] = []
     lib = library()
     for item in lib.passages:
         if document_id and item.document_id != document_id:
@@ -305,22 +316,27 @@ def search(query: str, document_id: str | None = None, limit: int = SEARCH_LIMIT
         if not content and not heading:
             continue
         coverage = len(content | heading) / len(wanted)
+        # termos em comum pesam mais em trechos curtos; o título do slide e a cobertura da pergunta somam
         score = 2.4 * len(content) / math.sqrt(max(4, len(item_terms))) + 1.2 * len(heading) / len(wanted) + coverage
         if re.match(r"^\d+\s", item.quote):
             score -= .3
-        ranked.append((score, item))
-    ranked.sort(key=lambda row: row[0], reverse=True)
-    result: list[Evidence] = []
+        ranked.append(Scored(item, score, frozenset(content), frozenset(heading), coverage, len(item_terms)))
+    ranked.sort(key=lambda row: row.score, reverse=True)
+    result: list[Scored] = []
     per_page: dict[tuple[str, int], int] = {}
-    for _, item in ranked:
-        key = (item.document_id, item.page)
-        if per_page.get(key, 0) >= 2:
+    for row in ranked:
+        key = (row.item.document_id, row.item.page)
+        if per_page.get(key, 0) >= per_page_limit:
             continue
         per_page[key] = per_page.get(key, 0) + 1
-        result.append(item)
+        result.append(row)
         if len(result) >= limit:
             break
     return result
+
+
+def search(query: str, document_id: str | None = None, limit: int = SEARCH_LIMIT) -> list[Evidence]:
+    return [row.item for row in rank_candidates(query, document_id, limit)]
 
 
 # Mantido para quem chama a busca simples (modo local e simulados).
@@ -973,3 +989,9 @@ async def run_tutor(request: AskRequest):
             yield emit("run_failed", {"code": "internal_error", "message": "Algo falhou ao processar a pergunta. Tente novamente."})
 
     return StreamingResponse(with_heartbeat(events()), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# Rotas do Laboratório (importadas no fim: elas usam as funções acima)
+from api.lab import router as lab_router  # noqa: E402
+
+app.include_router(lab_router)
