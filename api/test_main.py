@@ -206,3 +206,38 @@ class LibraryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+class LabTest(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+
+    def test_nlp_shows_each_step_of_the_pipeline(self):
+        data = self.client.get("/api/lab/nlp", params={"q": "Quais são as alucinações dos LLMs?"}).json()
+        self.assertIn("quais", data["stopwords_removed"])
+        self.assertIn({"word": "alucinacoes", "stem": "alucina"}, data["stems"])
+        self.assertEqual(data["terms"], sorted({item["stem"] for item in data["stems"]}))
+
+    def test_search_breakdown_matches_agent_search(self):
+        data = self.client.get("/api/lab/search", params={"q": "O que é overfitting?", "limit": 6}).json()
+        self.assertEqual([item["id"] for item in data["candidates"]], [item.id for item in search("O que é overfitting?")])
+        self.assertTrue(all(item["score"] > 0 for item in data["candidates"]))
+
+    def test_page_detail_reports_glyph_fixes(self):
+        data = self.client.get("/api/lab/page", params={"doc": "aula-11", "page": 2}).json()
+        self.assertIn("Ą", {item["from"] for item in data["fixes"]})
+        self.assertNotIn("Ą", data["clean"])
+
+    def test_evaluation_and_relevance_use_the_labeled_set(self):
+        evaluation = self.client.get("/api/lab/evaluation").json()
+        self.assertEqual(len(evaluation["results"]), 26)
+        self.assertGreaterEqual(evaluation["metrics"]["recall@6"], evaluation["metrics"]["recall@1"])
+        relevance = self.client.get("/api/lab/relevance").json()
+        positives = sum(candidate["y"] for query in relevance["queries"] for candidate in query["candidates"])
+        self.assertGreater(positives, 10)
+
+    def test_agent_view_exposes_prompt_and_tools(self):
+        data = self.client.get("/api/lab/agent").json()
+        self.assertIn("Você é o Aster", data["system_prompt"])
+        self.assertIn("buscar_nas_aulas", [tool["name"] for tool in data["tools"]])
