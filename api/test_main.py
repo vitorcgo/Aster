@@ -209,15 +209,17 @@ class AgentTest(unittest.TestCase):
 
     def test_server_caps_web_searches(self):
         script = [
-            turn(("pesquisar_na_web", {"consulta": "a"})),
-            turn(("pesquisar_na_web", {"consulta": "b"})),
-            turn(("pesquisar_na_web", {"consulta": "c"})),
+            turn(("pesquisar_na_web", {"consulta": "redes neurais camadas"})),
+            turn(("pesquisar_na_web", {"consulta": "overfitting regularizacao"})),
+            turn(("pesquisar_na_web", {"consulta": "como funciona overfitting e regularizacao"})),
+            turn(("pesquisar_na_web", {"consulta": "embeddings vetores"})),
+            turn(("pesquisar_na_web", {"consulta": "tokenizacao texto"})),
             turn(("responder", {"blocos": [{"texto": "Fora das aulas, RAG é uma técnica.", "citacoes": ["web-1"]}]})),
         ]
         with patch("api.main.call_model", side_effect=script):
             events = self.ask("o que é RAG?")
-        self.assertEqual(sum(1 for event in events if event["type"] == "web_results"), 2)
-        self.assertEqual([event["data"]["message"] for event in events if event["type"] == "tool_error"], ["Limite de pesquisas na web atingido"])
+        self.assertEqual(sum(1 for event in events if event["type"] == "web_results"), 3)
+        self.assertEqual([event["data"]["message"] for event in events if event["type"] == "tool_error"], ["Pesquisa repetida", "Limite de pesquisas na web atingido"])
         self.assertEqual(events[-1]["type"], "answer_ready")
 
     def test_giving_up_with_web_sources_is_reconsidered_once(self):
