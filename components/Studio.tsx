@@ -410,7 +410,7 @@ export function Studio({ active = true }: { active?: boolean }) {
     forgetDrawn((target) => target.startsWith("node-") || target.startsWith("sheet-"));
     setStagingId(turn.id);
     setDrawTab(null);
-    const reset = { ...newTurn(turn.id, turn.question), events: turn.events };
+    const reset = { ...newTurn(turn.id, turn.question), events: turn.events, createdAt: turn.createdAt };
     turnsRef.current = turnsRef.current.map((item) => (item.id === turn.id ? reset : item));
     setTurns(turnsRef.current);
     for (const event of turn.events) enqueue(event, turn.id, myToken);
@@ -532,6 +532,9 @@ export function Studio({ active = true }: { active?: boolean }) {
                   onOpenSource={openSource}
                   onRetry={ask}
                   onShowTrace={(turn) => { setActiveTurnId(turn.id); setCompact(false); }}
+                  onEdit={(question) => { setDraft(question); window.setTimeout(() => { const field = document.getElementById("question-dock") as HTMLTextAreaElement | null; field?.focus(); field?.setSelectionRange(question.length, question.length); }, 0); }}
+                  onClear={reset}
+                  running={running}
                   activeTurnId={activeTurnId}
                 />
                 <div className="chat-dock">

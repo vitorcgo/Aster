@@ -88,10 +88,75 @@ type Props = {
   onOpenSource: (source: Source, turn: Turn) => void;
   onRetry: (question: string) => void;
   onShowTrace: (turn: Turn) => void;
+  onEdit: (question: string) => void;
+  onClear: () => void;
+  running: boolean;
   activeTurnId: string | null;
 };
 
-function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, active }: { turn: Turn; revealing: boolean; onRevealDone: (id: string) => void; onOpenSource: Props["onOpenSource"]; onShowTrace: Props["onShowTrace"]; active: boolean }) {
+const clock = (time?: number) => (time ? new Date(time).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "");
+
+/** Texto da resposta com as fontes no fim, para colar num resumo. */
+function plainAnswer(turn: Turn) {
+  const numbered = new Map(turn.sources.map((source, index) => [source.id, index + 1]));
+  const body = turn.blocks.map((block) => {
+    const marks = [...new Set(block.citation_ids.map((id) => numbered.get(id)).filter(Boolean))].map((n) => `[${n}]`).join("");
+    return `${block.text.replace(/\*\*(.+?)\*\*/g, "$1")} ${marks}`.trim();
+  }).join("\n\n");
+  const sources = turn.sources.map((source, index) => `[${index + 1}] ${source.kind === "aula" ? `${lectureLabel(source.document_id, source.page)}: ${source.title}` : `${source.title} (${source.url})`}`).join("\n");
+  return `Pergunta: ${turn.question}\n\n${body}${sources ? `\n\nFontes:\n${sources}` : ""}`;
+}
+
+function TurnActions({ turn, onEdit, onRetry, running }: { turn: Turn; onEdit: (question: string) => void; onRetry: (question: string) => void; running: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(plainAnswer(turn));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <div className="turn-actions">
+      <button type="button" className="turn-action" onClick={copy} title="Copiar a resposta com as fontes">
+        <Icon name={copied ? "check" : "copy"} size={15} />{copied ? "Copiado" : "Copiar"}
+      </button>
+      <button type="button" className="turn-action" onClick={() => onEdit(turn.question)} title="Colocar a pergunta no campo para ajustar">
+        <Icon name="edit" size={15} />Editar pergunta
+      </button>
+      <button type="button" className="turn-action" onClick={() => onRetry(turn.question)} disabled={running} title="Fazer a mesma pergunta de novo">
+        <Icon name="replay" size={15} />Perguntar de novo
+      </button>
+    </div>
+  );
+}
+
+function SourceList({ turn, onOpen }: { turn: Turn; onOpen: (source: Source) => void }) {
+  if (!turn.sources.length) return null;
+  return (
+    <details className="source-list">
+      <summary><Icon name="right" size={14} className="source-list-chevron" />{turn.sources.length} {turn.sources.length === 1 ? "fonte usada" : "fontes usadas"}</summary>
+      <ol>
+        {turn.sources.map((source, index) => (
+          <li key={source.id}>
+            <button type="button" onClick={() => onOpen(source)}>
+              <span className="source-n">{index + 1}</span>
+              {source.kind === "aula" ? <Icon name="page" size={15} /> : <img src={faviconUrl(source.domain)} alt="" width="15" height="15" />}
+              <span className="source-text">
+                <strong>{source.kind === "aula" ? lectureLabel(source.document_id, source.page) : siteName(source.domain)}</strong>
+                <small>{source.kind === "aula" ? source.quote : source.title}</small>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
+function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, onEdit, onRetry, running, active }: { turn: Turn; revealing: boolean; onRevealDone: (id: string) => void; onOpenSource: Props["onOpenSource"]; onShowTrace: Props["onShowTrace"]; onEdit: Props["onEdit"]; onRetry: Props["onRetry"]; running: boolean; active: boolean }) {
   const blocks = useMemo(() => turn.blocks.map((block) => ({ ...block, segments: segmentsOf(block.text), length: segmentsOf(block.text).reduce((sum, item) => sum + item.text.length, 0) })), [turn.blocks]);
   const total = blocks.reduce((sum, block) => sum + block.length, 0);
   const [count, setCount] = useState(revealing ? 0 : total);
@@ -162,6 +227,8 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
                 <Icon name="right" size={16} />
               </Link>
             )}
+            <SourceList turn={turn} onOpen={(item) => onOpenSource(item, turn)} />
+            <TurnActions turn={turn} onEdit={onEdit} onRetry={onRetry} running={running} />
             {!turn.chat && (
               <p className="answer-meta">
                 {actions} {actions === 1 ? "ação" : "ações"} em {(turn.elapsed / 1000).toFixed(1).replace(".", ",")} s{turn.model ? ` com ${turn.model}` : ""}
@@ -176,53 +243,119 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
   );
 }
 
-export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, onRetry, onShowTrace, activeTurnId }: Props) {
+export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, onRetry, onShowTrace, onEdit, onClear, running, activeTurnId }: Props) {
+  const box = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
+  // só acompanha o fim enquanto o aluno está lá embaixo; se ele subiu para ler, não puxamos de volta
+  const pinned = useRef(true);
+  const [away, setAway] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const last = turns[turns.length - 1];
   const lastState = last ? `${last.id}-${last.status}-${last.nodes.length}-${last.thinking}` : "";
 
-  useEffect(() => {
+  const onScroll = () => {
+    const element = box.current;
+    if (!element) return;
+    const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+    pinned.current = atEnd;
+    setAway(!atEnd);
+  };
+
+  const toEnd = () => {
+    pinned.current = true;
+    setAway(false);
     end.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [turns.length, lastState, revealId, holdId]);
+  };
+
+  // pergunta nova sempre leva ao fim
+  useEffect(() => { toEnd(); }, [turns.length]);
+
+  useEffect(() => {
+    if (pinned.current) end.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [lastState, revealId, holdId]);
+
+  // a resposta sendo escrita cresce sem mudar o estado do turno; segue o crescimento enquanto preso ao fim
+  useEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => { if (pinned.current) element.scrollTop = element.scrollHeight; });
+    Array.from(element.children).forEach((child) => observer.observe(child));
+    return () => observer.disconnect();
+  }, [turns.length]);
+
+  useEffect(() => {
+    if (!confirmClear) return;
+    const timer = window.setTimeout(() => setConfirmClear(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [confirmClear]);
+
+  const answered = turns.filter((turn) => turn.status === "answered").length;
 
   return (
-    <div className="thread" aria-live="polite">
-      {turns.map((turn) => {
-        const revealing = turn.id === revealId;
-        const pendingReveal = turn.status === "answered" && holdId === turn.id;
-        const showAnswer = turn.status === "answered" && !pendingReveal;
-        const mood = turn.status === "running" || pendingReveal ? "thinking" : revealing ? "writing" : turn.status === "answered" ? "success" : "idle";
-        return (
-          <div className="turn" key={turn.id}>
-            <motion.div className="bubble-question" initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: "spring", duration: 0.45, bounce: 0.15 }}>
-              <p>{turn.question}</p>
-            </motion.div>
-            <motion.div className="bubble-aster" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.35 }}>
-              <div className="bubble-aster-head">
-                <Mascot mood={turn.id === last?.id ? mood : turn.status === "answered" ? "success" : "idle"} size={30} />
-                <span>Aster</span>
-              </div>
-              {(turn.status === "running" || pendingReveal) && (
-                <div className="live-line">
-                  <AnimatePresence mode="wait" initial={false}>
-                    <motion.p key={pendingReveal ? "selecionando" : liveLine(turn)} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="shimmer">
-                      {pendingReveal ? "Marcando o trecho que sustenta a resposta" : liveLine(turn)}
-                    </motion.p>
-                  </AnimatePresence>
+    <div className="thread-frame">
+      <header className="chat-head">
+        <span className="chat-head-title"><Icon name="chat" size={16} />Conversa</span>
+        <span className="chat-head-meta">{turns.length} {turns.length === 1 ? "pergunta" : "perguntas"}{answered !== turns.length ? ` · ${answered} respondidas` : ""}</span>
+        <button
+          type="button"
+          className={`chat-head-clear ${confirmClear ? "is-confirm" : ""}`}
+          disabled={running}
+          onClick={() => (confirmClear ? onClear() : setConfirmClear(true))}
+          title={running ? "Espere a pesquisa terminar" : "Apagar a conversa e começar outra"}
+        >
+          <Icon name={confirmClear ? "check" : "plus"} size={15} />{confirmClear ? "Confirmar" : "Nova conversa"}
+        </button>
+      </header>
+      <div className="thread" ref={box} onScroll={onScroll} aria-live="polite">
+        {turns.map((turn) => {
+          const revealing = turn.id === revealId;
+          const pendingReveal = turn.status === "answered" && holdId === turn.id;
+          const showAnswer = turn.status === "answered" && !pendingReveal;
+          const mood = turn.status === "running" || pendingReveal ? "thinking" : revealing ? "writing" : turn.status === "answered" ? "success" : "idle";
+          return (
+            <div className={`turn ${turn.id === activeTurnId ? "is-active" : ""}`} key={turn.id}>
+              <motion.div className="bubble-question" initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: "spring", duration: 0.45, bounce: 0.15 }}>
+                <p>{turn.question}</p>
+                {turn.createdAt && <time dateTime={new Date(turn.createdAt).toISOString()}>{clock(turn.createdAt)}</time>}
+              </motion.div>
+              <motion.div className="bubble-aster" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12, duration: 0.35 }}>
+                <div className="bubble-aster-head">
+                  <Mascot mood={turn.id === last?.id ? mood : turn.status === "answered" ? "success" : "idle"} size={30} />
+                  <span>Aster</span>
+                  {turn.status === "running" && <span className="bubble-step">passo {Math.max(1, turn.step)}</span>}
                 </div>
-              )}
-              {showAnswer && <TurnAnswer turn={turn} revealing={revealing} onRevealDone={onRevealDone} onOpenSource={onOpenSource} onShowTrace={onShowTrace} active={turn.id === activeTurnId} />}
-              {(turn.status === "empty" || turn.status === "failed") && (
-                <div className={`answer-problem ${turn.status === "failed" ? "is-error" : ""}`}>
-                  <p>{turn.message}</p>
-                  <button type="button" className="ghost-button dark" onClick={() => onRetry(turn.question)}><Icon name="replay" size={15} />Tentar de novo</button>
-                </div>
-              )}
-            </motion.div>
-          </div>
-        );
-      })}
-      <div ref={end} />
+                {(turn.status === "running" || pendingReveal) && (
+                  <div className="live-line">
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.p key={pendingReveal ? "selecionando" : liveLine(turn)} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="shimmer">
+                        {pendingReveal ? "Marcando o trecho que sustenta a resposta" : liveLine(turn)}
+                      </motion.p>
+                    </AnimatePresence>
+                  </div>
+                )}
+                {showAnswer && <TurnAnswer turn={turn} revealing={revealing} onRevealDone={onRevealDone} onOpenSource={onOpenSource} onShowTrace={onShowTrace} onEdit={onEdit} onRetry={onRetry} running={running} active={turn.id === activeTurnId} />}
+                {(turn.status === "empty" || turn.status === "failed") && (
+                  <div className={`answer-problem ${turn.status === "failed" ? "is-error" : ""}`}>
+                    <p>{turn.message}</p>
+                    <div className="answer-problem-actions">
+                      <button type="button" className="ghost-button dark" onClick={() => onRetry(turn.question)} disabled={running}><Icon name="replay" size={15} />Tentar de novo</button>
+                      <button type="button" className="ghost-button dark" onClick={() => onEdit(turn.question)}><Icon name="edit" size={15} />Editar pergunta</button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          );
+        })}
+        <div ref={end} />
+      </div>
+      <AnimatePresence>
+        {away && (
+          <motion.button type="button" className="to-end" onClick={toEnd} initial={{ opacity: 0, y: 10, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.9 }} transition={{ duration: 0.2 }}>
+            <Icon name="down" size={15} />{running ? "Acompanhar a pesquisa" : "Ir para o fim"}
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

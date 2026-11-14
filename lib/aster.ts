@@ -86,6 +86,8 @@ export type Turn = {
   message: string;
   elapsed: number;
   events: RunEvent[];
+  /** quando a pergunta foi feita (ms); sessões antigas não têm */
+  createdAt?: number;
 };
 
 export function newTurn(id: string, question: string): Turn {
@@ -107,6 +109,7 @@ export function newTurn(id: string, question: string): Turn {
     message: "",
     elapsed: 0,
     events: [],
+    createdAt: Date.now(),
   };
 }
 

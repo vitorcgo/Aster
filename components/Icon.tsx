@@ -25,6 +25,9 @@ const paths: Record<string, React.ReactNode> = {
   network: <><circle cx="5" cy="6" r="2" /><circle cx="5" cy="18" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="7" r="2" /><circle cx="19" cy="17" r="2" /><path d="M7 6.6 10 11M7 17.4 10 13M14 11.4l3-3.4M14 12.6l3 3.4" /></>,
   play: <path d="M8 5v14l11-7z" />,
   pause: <path d="M8 5v14M16 5v14" />,
+  edit: <><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="m13.5 6.5 4 4" /></>,
+  down: <path d="M12 5v14M6 13l6 6 6-6" />,
+  chat: <path d="M5 5h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />,
 };
 
 export type IconName = keyof typeof paths;
