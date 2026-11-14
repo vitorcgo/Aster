@@ -41,6 +41,28 @@ Cada chamada de ferramenta vira um evento SSE (`tool_call`, `search_results`, `p
 
 Sem `GEMINI_API_KEY`, a API roda um caminho fixo (busca, leitura da primeira página, trechos copiados) e a interface avisa que não há IA envolvida.
 
+## Modelos, chaves e provedores
+
+O botão de modelo na barra superior abre o painel **Modelos de IA**. Nele dá para:
+
+- colar chaves do **Gemini**, do **ChatGPT** (OpenAI) e da **NVIDIA**; elas ficam em `data/settings.json`, fora do Git, e o navegador só recebe o final mascarado;
+- listar os modelos que cada chave enxerga, direto da API do provedor;
+- **testar** um modelo: o teste mede o tempo de resposta e confirma se ele chama ferramentas, o que o agente exige;
+- montar a **fila do agente**: o Aster usa o primeiro modelo e passa ao próximo se ele falhar, ficar sem cota ou demorar demais.
+
+Sem fila salva, vale a ordem do `.env` (`GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` e `GEMINI_LAST_RESORT`). As chaves também podem vir de `OPENAI_API_KEY` e `NVIDIA_API_KEY`.
+
+## Laboratório
+
+A rota `/laboratorio` reúne demonstrações interativas do que foi ensinado em aula, cada uma ligada às páginas de origem:
+
+- **Rede neural** (Aula 3): uma MLP treinando no navegador, com forward pass, perda, backpropagation e θ ← θ − α∇J. Sem camada oculta ela vira um perceptron e não resolve o XOR, como na p. 4.
+- **Convolução e pooling** (Aula 3): filtro 3 × 3 deslizando, padding, stride e max-pooling.
+- **Embeddings** (Aula 6): Rei − Homem + Mulher ≈ Rainha num mapa vetorial ilustrativo.
+- **Overfitting** (Aula 2): o erro de validação dispara quando o modelo decora o ruído.
+
+Quando o Aster cita uma dessas páginas, a resposta oferece abrir a demonstração correspondente.
+
 ## Modelos e erros
 
 `GEMINI_MODEL` define o modelo principal e `GEMINI_FALLBACK_MODEL` o reserva. Se o principal falhar por indisponibilidade, limite ou resposta inválida, o agente recomeça com o reserva. Erros de chave, cobrança e permissão aparecem sem detalhes internos. `GEMINI_THINKING` ajusta o nível de raciocínio (`minimal`, `low`, `medium`, `high`; padrão `low`).
