@@ -291,6 +291,26 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
   const last = turns[turns.length - 1];
   const lastState = last ? `${last.id}-${last.status}-${last.nodes.length}-${last.thinking}` : "";
 
+  // No celular (uma coluna) a conversa não tem rolagem própria: ela flui com a página, como num app de chat.
+  // Aí "acompanhar o fim" só vale se o aluno está perto do fim da conversa; se desceu para ver o slide, não puxamos de volta.
+  const flowing = () => !!box.current && getComputedStyle(box.current).overflowY === "visible";
+  // perto = o fim da conversa está na tela ou logo abaixo dela; se ficou para trás (o aluno desceu até o slide), não é perto
+  const nearEnd = () => {
+    if (!end.current) return false;
+    const top = end.current.getBoundingClientRect().top;
+    // metade de baixo da tela (ou logo abaixo dela): o aluno está lendo a conversa; na metade de cima, ele olha o que vem depois
+    return top > window.innerHeight * 0.45 && top - window.innerHeight < 160;
+  };
+  const follows = () => (flowing() ? nearEnd() : pinned.current);
+  // no celular, acompanhar só desce a página, e só quando o fim da conversa passou para baixo do campo de pergunta.
+  // Alinhar o fim ao rodapé quando ele já estava à vista subia a página e tirava o slide da tela.
+  const DOCK = 100;
+  const keepEndInView = (smooth: boolean) => {
+    const top = end.current?.getBoundingClientRect().top;
+    if (top === undefined || top <= window.innerHeight - DOCK) return;
+    window.scrollBy({ top: top - (window.innerHeight - DOCK), behavior: smooth ? "smooth" : "auto" });
+  };
+
   const onScroll = () => {
     const element = box.current;
     if (!element) return;
@@ -306,17 +326,38 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
   };
 
   // pergunta nova sempre leva ao fim
-  useEffect(() => { toEnd(); }, [turns.length]);
+  // (no celular, ao abrir a página, a conversa restaurada não arrasta a página para baixo; só uma pergunta nova arrasta)
+  // (compara com a contagem do carregamento: o React em desenvolvimento roda o efeito duas vezes ao montar)
+  const loadedTurns = useRef(turns.length);
+  useEffect(() => {
+    if (flowing() && turns.length === loadedTurns.current) return;
+    loadedTurns.current = -1;
+    toEnd();
+  }, [turns.length]);
 
   useEffect(() => {
-    if (pinned.current) end.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    if (!follows()) return;
+    if (flowing()) keepEndInView(true);
+    else end.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [lastState, revealId, holdId]);
 
   // a resposta sendo escrita cresce sem mudar o estado do turno; segue o crescimento enquanto preso ao fim
   useEffect(() => {
     const element = box.current;
     if (!element) return;
-    const observer = new ResizeObserver(() => { if (pinned.current) element.scrollTop = element.scrollHeight; });
+    let lastHeight = element.offsetHeight;
+    const observer = new ResizeObserver(() => {
+      const height = element.offsetHeight;
+      const grew = height - lastHeight;
+      lastHeight = height;
+      if (flowing()) {
+        if (nearEnd()) keepEndInView(false);
+        // o aluno desceu até a investigação ou o slide e a resposta cresce lá em cima: a página desce junto,
+        // senão o que ele está olhando escorrega para baixo (o Safari não faz essa compensação sozinho)
+        else if (grew && end.current && end.current.getBoundingClientRect().top <= window.innerHeight * 0.45) window.scrollBy(0, grew);
+      } else if (pinned.current) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(element);
     Array.from(element.children).forEach((child) => observer.observe(child));
     return () => observer.disconnect();
   }, [turns.length]);
@@ -413,7 +454,7 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
             </div>
           );
         })}
-        <div ref={end} />
+        <div ref={end} className="thread-end" />
       </div>
       <AnimatePresence>
         {away && (

@@ -95,7 +95,13 @@ export function DocumentDeck({ tabs, activeId, drawId, onSelect, highlights, foc
   const shift = last.current.shift;
 
   useEffect(() => {
-    strip.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    // rola só a faixa de abas, na horizontal: scrollIntoView rolava a página inteira até o documento (no celular, ao abrir)
+    const bar = strip.current;
+    const tab = bar?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!bar || !tab) return;
+    const left = tab.offsetLeft - bar.offsetLeft;
+    if (left < bar.scrollLeft) bar.scrollTo({ left, behavior: "smooth" });
+    else if (left + tab.offsetWidth > bar.scrollLeft + bar.clientWidth) bar.scrollTo({ left: left + tab.offsetWidth - bar.clientWidth, behavior: "smooth" });
   }, [active?.id]);
 
   return (

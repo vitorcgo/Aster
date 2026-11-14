@@ -1463,3 +1463,38 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   .pdf-count { padding: 0 2px; }
   .pdf-toolbar .zoom-value { padding: 0 4px; }
 }
+
+/* ------------------------------------------------------------------ rolagem no celular
+   Antes, o chat tinha rolagem própria (com overscroll contido) e ocupava quase a tela toda: arrastando em cima dele,
+   a página não descia nunca. Em uma coluna, a conversa flui com a página e o campo de pergunta gruda no rodapé. */
+@media (max-width: 980px) {
+  .chat { height: auto; overflow: visible; }
+  .thread-frame { flex: none; }
+  .thread { flex: none; overflow: visible; overscroll-behavior: auto; scrollbar-gutter: auto; }
+  .thread-end { scroll-margin-bottom: 96px; }
+  /* a compensação da conversa crescendo é feita no código; a do navegador somaria em dobro */
+  html, body { overflow-anchor: none; }
+  .to-end { display: none; }
+  .chat-dock {
+    position: sticky; bottom: 0; z-index: 6;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    border-radius: 0 0 var(--r-xl) var(--r-xl);
+    background-color: var(--glass-deep);
+  }
+  /* a trilha e o PDF também não prendem o dedo: no limite da rolagem deles, a página continua */
+  .track-viewport, .pdf-scroll { overscroll-behavior: auto; }
+}
+
+/* celular e tablet com toque: o desfoque de vidro em dezenas de painéis deixa a rolagem engasgada.
+   Troca o desfoque por fundos mais opacos, que leem igual sobre a paisagem. */
+@media (max-width: 980px) and (pointer: coarse) {
+  :root {
+    --glass: rgba(8, 34, 92, 0.84);
+    --glass-strong: rgba(6, 28, 78, 0.9);
+    --node: rgba(6, 30, 80, 0.95);
+  }
+  *, *::before, *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+}
+
+/* no toque, tocar no chip já abre a fonte; a dica de passar o mouse só atrapalhava (e vazava da tela no celular) */
+@media (pointer: coarse) { .chip-peek { display: none; } }
