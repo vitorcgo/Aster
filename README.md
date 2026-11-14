@@ -98,21 +98,31 @@ Em outro terminal:
 npm run dev
 ```
 
-Abra `http://127.0.0.1:3000`. A chave de IA pode ir no `.env` (`GEMINI_API_KEY`) ou ser colada no painel **Modelos de IA**, dentro do próprio site.
+Abra `http://127.0.0.1:3000`, clique no botão de modelo no topo e cole a **sua chave de IA** (o Gemini tem plano gratuito em [aistudio.google.com/apikey](https://aistudio.google.com/apikey)). Não precisa de `.env`.
 
 Coloque os arquivos `Aula 1.pdf` a `Aula 12.pdf` na raiz do projeto. Outros PDFs entram por `data/materials/`.
 
-| Variável | Padrão | Para que serve |
-| --- | --- | --- |
-| `GEMINI_API_KEY` | vazio | Chave do Gemini. Sem nenhuma chave, o Aster roda um caminho fixo, sem IA, e avisa na tela |
-| `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` | `gemini-4-hydrogen`, `gemini-3.5-flash-lite` | Fila usada quando nenhuma foi salva pelo painel |
-| `OPENAI_API_KEY`, `NVIDIA_API_KEY` | vazio | Chaves dos outros provedores |
-| `ASTER_PERGUNTAS_POR_MINUTO` | `12` | Limite de perguntas por IP (`0` desliga) |
-| `ASTER_TEMPO_MAXIMO` | `90` | Segundos que uma pergunta pode levar, somando todos os modelos |
-| `ASTER_WEB_GOOGLE`, `ASTER_WEB_DUCKDUCKGO` | `1` | `0` desliga cada buscador |
-| `ASTER_API_ORIGIN` | `http://127.0.0.1:8000` | Endereço da API visto pelo site |
+`npm run dev` escuta só neste computador. Para abrir no celular, use `npm run dev:rede` numa rede confiável.
 
-`npm run dev` escuta só neste computador, para que ninguém na mesma rede troque as chaves ou gaste a cota. Para abrir no celular, use `npm run dev:rede` numa rede confiável.
+### Colocar no ar
+
+O Aster é feito para ficar aberto ao público, com **cada visitante usando a própria chave**. Num servidor:
+
+1. Instale como acima e rode a API só para dentro da máquina: `uvicorn api.main:app --host 127.0.0.1 --port 8000`.
+2. Gere e rode o site: `npm run build` e `npm start`. Só ele fica exposto; ele repassa `/api` para a API.
+3. Coloque na frente um proxy com HTTPS que acrescente o IP real no `X-Forwarded-For` (Caddy, nginx, ou o da própria hospedagem, como Render, Railway ou Fly). É por esse IP que os limites contam cada visitante.
+4. Guarde a pasta `data/` num volume persistente: ali ficam a senha do dono, as configurações e a chave de cifra.
+5. Na primeira visita, abra **Modelos de IA → Sou o dono do site** e crie a senha com o código de uso único que aparece no terminal da API (e em `data/codigo-de-configuracao.txt`).
+
+Nada disso precisa de `.env`. As variáveis abaixo continuam aceitas, mas só como reserva do que se configura pelo painel:
+
+| Variável | Para que serve |
+| --- | --- |
+| `GEMINI_API_KEY`, `OPENAI_API_KEY`, `NVIDIA_API_KEY` | Chave do site para quem não tiver a própria (o painel do dono faz o mesmo, cifrado) |
+| `ASTER_PERGUNTAS_POR_MINUTO`, `ASTER_PERGUNTAS_POR_DIA`, `ASTER_PERGUNTAS_POR_DIA_TOTAL` | Limites, se não foram definidos no painel |
+| `ASTER_TEMPO_MAXIMO`, `GEMINI_THINKING`, `ASTER_WEB_GOOGLE`, `ASTER_WEB_DUCKDUCKGO` | Tempo máximo, raciocínio e buscadores, se não foram definidos no painel |
+| `ASTER_SECRET` | Chave de cifra das chaves do site; sem ela, o Aster cria `data/secret.key` |
+| `ASTER_API_ORIGIN` | Endereço da API visto pelo site (padrão `http://127.0.0.1:8000`) |
 
 ## <img src="docs/icones/fluxo.svg" width="22" align="center" alt=""> Como funciona
 
@@ -156,16 +166,18 @@ O ganho aparece nos dois grupos de perguntas (simulados e conceitos do sistema).
 
 ## <img src="docs/icones/modelos.svg" width="22" align="center" alt=""> Modelos e chaves
 
-O botão de modelo na barra superior abre o painel **Modelos de IA**. Nele dá para:
+O botão de modelo na barra superior abre o painel **Modelos de IA**. Cada visitante:
 
-- colar chaves do **Gemini**, do **ChatGPT** (OpenAI) e da **NVIDIA**, ou guardar no painel a chave que veio do `.env`;
-- listar os modelos que cada chave enxerga, direto da API do provedor;
-- **testar** um modelo: o teste mede o tempo de resposta e confirma se ele chama ferramentas, o que o agente exige;
-- montar a **fila do agente**, na ordem em que os modelos são tentados.
+- cola a própria chave do **Gemini**, do **ChatGPT** (OpenAI) ou da **NVIDIA**;
+- lista os modelos que a chave dele enxerga, direto da API do provedor;
+- **testa** um modelo: o teste mede o tempo de resposta e confirma se ele chama ferramentas, o que o agente exige;
+- monta a própria **fila**, na ordem em que os modelos são tentados.
+
+A chave e a fila ficam só no navegador do visitante. A chave vai junto com cada pergunta e vale só durante aquela consulta: o servidor não grava, não registra e não devolve.
 
 <img src="docs/diagramas/fila-de-modelos.svg" alt="Fila de modelos: quando um falha, o próximo assume com as fontes já achadas" width="100%">
 
-As chaves ficam em `data/settings.json`, fora do Git, e o navegador só recebe o final mascarado.
+No link **Sou o dono do site**, protegido por senha, o dono define os limites do site e pode cadastrar uma chave do site para quem não tiver a própria. Essa chave fica cifrada em `data/settings.json`, e o navegador só recebe o final mascarado.
 
 ## <img src="docs/icones/laboratorio.svg" width="22" align="center" alt=""> Laboratório
 
@@ -214,8 +226,9 @@ A documentação interativa fica em `http://127.0.0.1:8000/docs` (Swagger) e `/r
 | `GET` | `/api/health` | Mostra se a API está no ar e o modelo ativo |
 | `GET` | `/api/materials` | Lista as aulas indexadas |
 | `GET` | `/api/materials/{aula}/pdf` e `/pages/{página}` | Entrega o PDF e o texto de uma página |
-| `GET`, `PUT`, `DELETE` | `/api/settings/...` | Chaves e fila de modelos (só no próprio computador) |
-| `GET`, `POST` | `/api/providers/{provedor}/models` e `/test` | Lista e testa modelos de um provedor |
+| `POST` | `/api/ai/models` e `/api/ai/test` | O visitante lista e testa modelos com a própria chave (não é guardada) |
+| `GET`, `POST`, `PUT` | `/api/admin/...` | Senha, sessão e limites do dono do site |
+| `GET`, `PUT`, `DELETE` | `/api/settings/...` e `/api/providers/...` | Chave e fila do site (só o dono, logado) |
 | `GET` | `/api/lab/...` | Dados reais de cada etapa do Laboratório |
 | `POST` | `/api/simulado/runs` | Monta uma prova nova (escopo e número de questões) e envia as questões em SSE |
 
@@ -228,20 +241,24 @@ Todo erro volta no mesmo formato, com uma mensagem em português:
 | HTTP | `code` | Quando |
 | --- | --- | --- |
 | 400 | `invalid_request` | Pergunta vazia, longa demais ou JSON malformado |
-| 403 | `local_only` | Tentativa de mudar chaves a partir de outro computador |
+| 401 | `login_required`, `setup_required` | Rota do dono sem sessão, ou sem senha criada ainda |
+| 403 | `csrf` | Pedido que muda algo sem vir do painel do site |
 | 404 | `route_not_found` | Rota inexistente |
 | 405 | `method_not_allowed` | Método HTTP errado |
 | 413 | `payload_too_large` | Corpo maior que 64 KB |
-| 429 | `too_many_questions` | Mais perguntas por minuto do que o limite, com `Retry-After` |
+| 429 | `too_many_questions`, `daily_limit`, `site_daily_limit` | Passou do limite por minuto, por dia ou do site, com `Retry-After` |
 | 500 | `internal_error` | Erro inesperado; o detalhe fica só no log do servidor |
 
 Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida) não viram erro HTTP. Chegam como evento `model_fallback`, e o próximo modelo da fila assume.
 
 ## <img src="docs/icones/seguranca.svg" width="22" align="center" alt=""> Segurança
 
-- **Chaves:** ficam no `.env` ou em `data/settings.json`, ambos fora do Git. O navegador só recebe o final mascarado.
-- **Só no próprio computador:** `npm run dev` escuta em 127.0.0.1, e as rotas de chaves recusam pedidos de outros IPs.
-- **Limite de perguntas:** 12 por minuto por IP.
+- **Chave de cada visitante:** fica só no navegador dele e vale só durante a consulta. Não é gravada, registrada nem devolvida pela API. A pausa por falta de cota é da chave: a cota estourada de um visitante não afeta os outros.
+- **Área do dono:** senha com scrypt, sessão em cookie `HttpOnly`, `SameSite=Strict` e `Secure` em HTTPS, login limitado a 5 tentativas a cada 15 min. Criar a senha exige um código de uso único impresso no servidor, porque atrás de um proxy o IP "local" pode ser forjado.
+- **Chave do site cifrada:** se o dono cadastrar uma, ela fica cifrada em disco (Fernet), com a chave de cifra num arquivo separado.
+- **CSRF:** pedidos que mudam algo exigem um cabeçalho do painel e a origem do próprio site.
+- **Limites:** por minuto e por dia para cada visitante, e um teto diário do site inteiro, tudo ajustável no painel do dono.
+- **Cabeçalhos de segurança:** CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy` e HSTS em produção. Só links `http(s)` dos buscadores chegam à página.
 - **Dados pessoais:** CPF, cartão, e-mail e telefone são trocados por marcadores antes de a pergunta ir para a IA ou para a busca na web, e a resposta avisa o que foi ocultado.
 - **Prompt injection:** a pergunta vai entre `<pergunta_do_aluno>`, e o texto de regras manda tratar a pergunta, a conversa e tudo o que as ferramentas devolvem (slides e páginas da web) como dado, nunca como instrução.
 - **Citações conferidas:** o servidor recusa respostas que citem fontes que a IA não recebeu.
@@ -257,7 +274,9 @@ Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida)
 │   ├── main.py          # agente, pesquisa na web e rotas
 │   ├── library.py       # leitura dos PDFs, trechos e busca
 │   ├── providers.py     # Gemini, OpenAI e NVIDIA atrás da mesma interface
-│   ├── security.py      # limite por IP, dados pessoais e erros legíveis
+│   ├── security.py      # limites por IP, dados pessoais, cabeçalhos e erros legíveis
+│   ├── admin.py         # senha e sessão do dono, chave do site cifrada e limites
+│   ├── visitor.py       # chave de cada visitante, válida só durante a consulta
 │   ├── lab.py           # dados das etapas do Laboratório
 │   ├── simulado.py      # provas novas escritas pela IA no formato da Prova 1
 │   ├── eval_set.py      # as 26 perguntas de avaliação
