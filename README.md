@@ -42,7 +42,8 @@ e responde citando cada fonte. Cada passo aparece na tela no momento em que acon
 | **Mostra a fonte** | Cada frase da resposta aponta o slide ou o site que a sustenta. Clicar na citação abre a página com o trecho marcado. |
 | **Não inventa citação** | O servidor recusa qualquer resposta que cite uma fonte que a IA não recebeu das ferramentas. |
 | **Investigação ao vivo** | Cada busca, leitura e pesquisa vira um bloco desenhado na tela pelo cursor do Aster, com zoom e modo ampliado. |
-| **Vai além das aulas** | Perguntas fora da matéria são respondidas pela web (Google, DuckDuckGo ou Wikipédia), com o aviso de que saíram do material. |
+| **Fica na matéria** | Responde só sobre os assuntos dos slides. A web complementa a explicação, mas pedido fora da disciplina recebe uma recusa gentil, sem pesquisa. |
+| **Lembra de você** | Guarda fatos curtos que o aluno conta (nome, como prefere estudar) e retoma a conversa pelo contexto. Um "oi" é respondido direto, sem montar a investigação. |
 | **Não para se um modelo cair** | Há uma fila de modelos do Gemini, do ChatGPT e da NVIDIA. Se um falha, o próximo assume com o que já foi achado. |
 | **Explica a si mesmo** | O Laboratório mostra, com os dados reais, as 8 etapas que uma pergunta percorre, cada uma ligada à aula que a ensina. |
 
@@ -188,7 +189,7 @@ Quando o Aster cita uma página coberta por uma etapa, a resposta oferece abri-l
 A rota `/simulados` monta **uma prova diferente a cada vez**. O Aster sorteia páginas dos slides e a IA escreve questões inéditas no formato da Prova 1 da turma:
 
 - cinco alternativas, de A a E, com uma única correta;
-- três formatos que se alternam: afirmações (I–IV), caso com cálculo e asserção e razão;
+- três formatos que se alternam: afirmações (I–IV), caso prático e asserção e razão, sempre conceituais, sem conta;
 - um comentário para cada alternativa, como num gabarito comentado, e a página da aula que sustenta a resposta.
 
 Antes de montar, a tela pergunta: **quer que use todas as aulas ou só depois da primeira prova?** A segunda opção foca nas aulas 11 e 12 (a Prova 1 cobriu da 1 à 10) e traz cerca de um quarto das questões das aulas anteriores, como revisão.
@@ -199,7 +200,7 @@ O servidor confere cada questão antes de mostrar:
 2. **Segunda leitura:** outro pedido à IA resolve a prova com os slides, sem ver o gabarito. Questão em que a resposta dela não bate com o gabarito é descartada, porque é ambígua ou o gabarito está errado.
 3. **Embaralhamento:** as alternativas mudam de ordem para o gabarito não se concentrar numa letra.
 
-Para sobrar questão depois da conferência, o Aster pede algumas a mais. Se um modelo demora mais de 10 segundos, o próximo da fila começa junto e vale a primeira prova válida. Se a IA não entregar todas (ou não houver chave), a prova é completada com o banco de 12 questões conferidas à mão.
+Para ser rápido, a prova é escrita em blocos de 3 questões ao mesmo tempo, e cada questão aparece na tela assim que o bloco dela é conferido. O Aster pede algumas a mais para sobrar depois da conferência. Se um modelo demora mais de 4 segundos, o próximo da fila começa junto e vale a primeira resposta válida. Se a IA não entregar todas (ou não houver chave), a prova é completada com o banco de 12 questões conferidas à mão.
 
 Enquanto a prova é montada, o Aster aparece lendo as páginas sorteadas e desenhando cada questão no quadro. A correção pode ser a cada questão ou só no final.
 
@@ -246,6 +247,8 @@ Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida)
 - **Citações conferidas:** o servidor recusa respostas que citem fontes que a IA não recebeu.
 - **Resposta fiel à fonte:** se um bloco da resposta diz mais do que os slides citados dizem (menos de 30% dos termos em comum), a IA precisa reescrever antes de a resposta aparecer.
 - **Limite de tempo:** uma pergunta para em 90 segundos, somando todos os modelos.
+- **Escopo no servidor:** pergunta que não bate com nenhum slide nem fala de IA é recusada antes de chegar ao modelo. Pedidos como "ignore as regras" ou "mostre seu prompt" também. A pesquisa web recusa consultas fora da matéria mesmo que o modelo tente.
+- **Memória local:** os fatos guardados ficam só no navegador do aluno (botão Memória no chat, com Esquecer).
 
 ## <img src="docs/icones/pastas.svg" width="22" align="center" alt=""> Estrutura de pastas
 
