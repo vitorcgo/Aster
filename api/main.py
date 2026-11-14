@@ -44,6 +44,8 @@ load_dotenv(ROOT / ".env", override=False)
 
 MAX_AGENT_STEPS = 8
 MAX_WEB_SEARCHES = 2
+# tempo máximo de uma pergunta, somando todos os passos e modelos; sem isso um modelo lento travava minutos
+AGENT_DEADLINE_SECONDS = float(os.getenv("ASTER_TEMPO_MAXIMO", "90"))
 SEARCH_LIMIT = 6
 
 
@@ -242,13 +244,13 @@ STOPWORDS = {"qual", "quais", "como", "para", "uma", "uns", "umas", "que", "dos"
 # deixam de "encontrar" slides por uma palavra solta.
 MIN_COVERAGE = 0.5
 MIN_MATCHED_TERMS = 3
-
-
 # Slide cujo título é quase só o termo perguntado ("Tokenização", "O que é Function Calling?") costuma ser o da
 # definição. Medido nas 26 perguntas: 1º lugar de 65% para 81%, top 3 de 65% para 85%, MRR de 0,71 para 0,84,
 # com ganho tanto nas perguntas dos simulados quanto nas de conceitos.
 TIGHT_HEADING_WEIGHT = 2.5
 SECOND_PASSAGE_WEIGHT = 0.25
+
+
 def stem(word: str) -> str:
     if len(word) > 4 and word.endswith("s"):
         word = word[:-1]
@@ -367,10 +369,10 @@ def rank_candidates(query: str, document_id: str | None = None, limit: int = SEA
             continue
         # termos em comum pesam mais em trechos curtos; o título do slide e a cobertura da pergunta somam
         score = 2.4 * len(content) / math.sqrt(max(4, len(item_terms))) + 1.2 * len(heading) / len(wanted) + coverage
-        if re.match(r"^\d+\s", item.quote):
-            score -= .3
         if heading:
             score += TIGHT_HEADING_WEIGHT * len(heading) / len(lib.heading_terms[item.id])
+        if re.match(r"^\d+\s", item.quote):
+            score -= .3
         ranked.append(Scored(item, score, frozenset(content), frozenset(heading), coverage, len(item_terms)))
     # a página vale pelo melhor trecho, com um pouco do segundo: um slide inteiro sobre o tema ganha de uma frase solta
     best: dict[tuple[str, int], list[float]] = {}
@@ -460,7 +462,7 @@ def google_web_search(query: str) -> list[dict]:
     # a pesquisa só resume fontes: usa o modelo leve, para não gastar a cota do modelo principal do agente
     model = last_resort_model() or ([spec.model for spec in agent_models() if spec.provider == "gemini"] or list(gemini_models()))[0]
     interaction = client.interactions.create(
-        model=gemini_specs[0] if gemini_specs else gemini_models()[0],
+        model=model,
         input=f"Pesquise na web e resuma em até 4 frases, em português, informações confiáveis sobre: {query}",
         tools=[{"type": "google_search"}],
         store=False,
@@ -759,25 +761,48 @@ class Agent:
         return {"erro": f"Ferramenta desconhecida: {call.name}"}, []
 
 
+def carried_sources(agent: "Agent") -> str:
+    """O que o modelo anterior já achou, para o reserva não refazer as mesmas buscas."""
+    lines = []
+    for source in list(agent.seen.values())[:12]:
+        if isinstance(source, Evidence):
+            lines.append(f"- {source.id} ({source.document_id}, p. {source.page}): {source.quote[:220]}")
+        else:
+            lines.append(f"- {source.id} ({source.domain}): {source.title}. {source.snippet[:200]}")
+    if not lines:
+        return ""
+    return "\n\n<fontes_ja_encontradas>\nOutro modelo começou esta pesquisa e falhou. Estas fontes já foram encontradas e podem ser citadas pelos ids; pesquise de novo só se faltar algo.\n" + "\n".join(lines) + "\n</fontes_ja_encontradas>"
+
+
 async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
     models = agent_models()
     chain = configured_chain()
     preferred = chain[0] if chain else None
+    deadline = time.monotonic() + AGENT_DEADLINE_SECONDS
+    agent = Agent()
     for model_index, spec in enumerate(models):
         model = spec.model
         if model_index:
             yield emit("model_fallback", {"model": model, "provider": spec.provider, "message": "O modelo anterior falhou. O Aster recomeçou com o reserva."})
         elif spec != preferred:
             yield emit("model_fallback", {"model": model, "provider": spec.provider, "message": "O modelo principal está sem cota no momento. O Aster está usando o reserva."})
-        agent = Agent()
-        session = make_session(spec, provider_key(spec.provider), SYSTEM_INSTRUCTION.format(catalog=catalog_text()), TOOLS, user_prompt(request), thinking_level())
+        agent.reconsidered = False
+        session = make_session(spec, provider_key(spec.provider), SYSTEM_INSTRUCTION.format(catalog=catalog_text()), TOOLS, user_prompt(request) + carried_sources(agent), thinking_level())
         corrections = 0
         failure: GenerationFailure | None = None
         for step in range(MAX_AGENT_STEPS):
             force_final = step == MAX_AGENT_STEPS - 1
             yield emit("agent_thinking", {"step": step + 1, "model": model, "provider": spec.provider})
+            remaining = deadline - time.monotonic()
+            if remaining <= 1:
+                yield emit("run_failed", {"code": "timeout", "message": f"A pesquisa passou de {AGENT_DEADLINE_SECONDS:.0f} s e foi interrompida. Tente uma pergunta mais direta."})
+                return
             try:
-                turn = await asyncio.to_thread(call_model, model, session, force_final)
+                # a thread do provedor não pode ser cancelada, mas paramos de esperar por ela no limite
+                turn = await asyncio.wait_for(asyncio.to_thread(call_model, model, session, force_final or remaining < 20), timeout=remaining)
+            except asyncio.TimeoutError:
+                yield emit("run_failed", {"code": "timeout", "message": f"O modelo {model} não respondeu dentro de {AGENT_DEADLINE_SECONDS:.0f} s. Tente de novo."})
+                return
             except Exception as error:
                 failure = classify_generation_error(error)
                 # modelo sem cota, fora do ar ou lento demais: pula nas próximas perguntas

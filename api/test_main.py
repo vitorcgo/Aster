@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 from google.genai import errors as genai_errors
@@ -109,6 +109,28 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(checks, [False, True])
         self.assertEqual(events[-1]["type"], "answer_ready")
         self.assertFalse(events[-1]["data"]["used_fallback"])
+
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_backup_receives_sources_already_found(self):
+        hit = search("overfitting")[0]
+        prompts = []
+
+        def capture(spec, key, system, tools, prompt, thinking):
+            prompts.append(prompt)
+            return MagicMock()
+
+        script = [turn(("buscar_nas_aulas", {"consulta": "overfitting"})), genai_errors.APIError(503, {"error": {"message": "x"}}), turn(("responder", {"blocos": [{"texto": "Ok.", "citacoes": [hit.id]}]}))]
+        with patch("api.main.make_session", side_effect=capture), patch("api.main.call_model", side_effect=script):
+            events = self.ask()
+        self.assertNotIn("fontes_ja_encontradas", prompts[0])
+        self.assertIn(hit.id, prompts[1])
+        self.assertEqual(events[-1]["type"], "answer_ready")
+
+    def test_question_has_a_total_time_limit(self):
+        with patch("api.main.AGENT_DEADLINE_SECONDS", 0), patch("api.main.call_model") as model:
+            events = self.ask()
+        model.assert_not_called()
+        self.assertEqual((events[-1]["type"], events[-1]["data"]["code"]), ("run_failed", "timeout"))
 
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
     def test_unavailable_primary_restarts_on_backup(self):
@@ -332,6 +354,11 @@ class SecurityTest(unittest.TestCase):
 
     def tearDown(self):
         security.ask_limiter.reset()
+
+    def test_web_query_drops_quotes_and_filler(self):
+        from api.main import web_query
+        self.assertEqual(web_query("“Teste de Turing” “juiz”"), "Teste Turing juiz")
+        self.assertEqual(web_query("como funciona o teste de turing?"), "teste turing")
 
     def test_masks_only_real_personal_data(self):
         text, found = security.mask_personal_data("cartão 4111 1111 1111 1111, fone (11) 98765-4321, Turing em 1950 e 2023, página 26")
