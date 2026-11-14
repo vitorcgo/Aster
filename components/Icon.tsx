@@ -27,6 +27,8 @@ const paths: Record<string, React.ReactNode> = {
   pause: <path d="M8 5v14M16 5v14" />,
   edit: <><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="m13.5 6.5 4 4" /></>,
   down: <path d="M12 5v14M6 13l6 6 6-6" />,
+  grow: <><path d="M12 3v6M9 6l3-3 3 3M12 21v-6M9 18l3 3 3-3" /><path d="M4 12h16" /></>,
+  shrink: <><path d="M12 3v6M9 6l3 3 3-3M12 21v-6M9 18l3-3 3 3" /><path d="M4 12h16" /></>,
   chat: <path d="M5 5h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-8l-5 4v-4H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />,
 };
 

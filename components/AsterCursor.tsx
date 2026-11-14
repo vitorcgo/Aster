@@ -14,6 +14,20 @@ function rectOf(target: string) {
   return elements.map((element) => element.getBoundingClientRect()).filter((rect) => rect.width > 0 && rect.height > 0);
 }
 
+/** O alvo está cortado por algum contêiner com rolagem (a trilha rolada, por exemplo)? */
+function clipped(target: string) {
+  const element = document.querySelector<HTMLElement>(`[data-cursor="${target}"]`);
+  if (!element) return true;
+  const rect = element.getBoundingClientRect();
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    const style = getComputedStyle(parent);
+    if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+    const box = parent.getBoundingClientRect();
+    if (rect.bottom < box.top + 8 || rect.top > box.bottom - 8 || rect.right < box.left + 8 || rect.left > box.right - 8) return true;
+  }
+  return !visible(rect);
+}
+
 function visible(rect: DOMRect) {
   return rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
 }
@@ -73,6 +87,16 @@ export function AsterCursor({ state }: { state: CursorState }) {
         let targetX = Math.min(first.right - 14, first.left + first.width * 0.86);
         let targetY = Math.min(first.bottom - 10, first.top + Math.max(18, first.height * 0.8));
         if (state.gesture === "draw") {
+          if (!drawStart && !drawEnded && clipped(state.target)) {
+            // fora da vista: riscar seria desenhar no vazio; o bloco aparece direto
+            drawEnded = true;
+            announce("aster:arrive", state.target);
+            announce("aster:drawn", state.target);
+          }
+          if (drawEnded && !drawStart) {
+            frame = requestAnimationFrame(tick);
+            return;
+          }
           if (!drawStart) {
             targetX = first.left;
             targetY = first.top;

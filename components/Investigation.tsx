@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AcervoGrid } from "./AcervoGrid";
 import { Drawable } from "./Drawable";
 import { Icon, type IconName } from "./Icon";
@@ -71,7 +71,16 @@ function NodeBody({ node, materials }: { node: TraceNode; materials: Material[] 
       return (
         <>
           <p className="node-query">“{node.query}”{node.aula && <span className="node-scope"> em {lectureLabel(node.aula)}</span>}</p>
-          <AcervoGrid materials={materials} hits={node.hits} focus={node.aula} />
+          {node.hits === null ? (
+            // enquanto varre, o mapa das 12 aulas; com o resultado, as páginas achadas (o mapa quase todo apagado parecia vazio)
+            <AcervoGrid materials={materials} hits={node.hits} focus={node.aula} />
+          ) : node.hits.length > 0 && (
+            <ul className="hit-mini">
+              {Array.from(new Map(node.hits.map((hit) => [`${hit.document_id}:${hit.page}`, hit])).values()).slice(0, 3).map((hit) => (
+                <li key={hit.id}><Icon name="page" size={13} /><span><b>{lectureLabel(hit.document_id, hit.page)}</b>{hit.quote}</span></li>
+              ))}
+            </ul>
+          )}
           <p className="node-meta">{node.hits === null ? "Varrendo 12 aulas" : node.hits.length ? `${node.hits.length} trechos em ${docs} ${docs === 1 ? "aula" : "aulas"}` : "Nada encontrado"}</p>
         </>
       );
@@ -119,6 +128,10 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
   const viewport = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  // zoom manual (null = ajustar sozinho) e área ampliada, para olhar a trilha de perto na apresentação
+  const [zoom, setZoom] = useState<number | null>(null);
+  const [tall, setTall] = useState(false);
+  const [autoScale, setAutoScale] = useState(1);
   const nodes = turn?.nodes ?? [];
   const thinking = !!turn && turn.status === "running" && turn.thinking;
   const last = nodes[nodes.length - 1];
@@ -161,12 +174,17 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
       // a trilha ocupa só a altura de que precisa (até 54% da área); o documento fica com o resto
       const work = frame.closest<HTMLElement>(".work");
       const head = frame.offsetTop;
-      const limit = work ? work.clientHeight * 0.54 : frame.clientHeight + head;
+      const limit = work ? work.clientHeight * (tall ? 0.8 : 0.54) : frame.clientHeight + head;
       const available = limit - head;
       let scale = 0.66;
-      for (const candidate of [1, 0.92, 0.85, 0.78, 0.72, 0.66]) {
-        element.style.width = `${100 / candidate}%`;
-        if (contentHeight() * candidate <= available) { scale = candidate; break; }
+      if (zoom !== null) {
+        scale = zoom;
+      } else {
+        for (const candidate of [1, 0.92, 0.85, 0.78, 0.72, 0.66]) {
+          element.style.width = `${100 / candidate}%`;
+          if (contentHeight() * candidate <= available) { scale = candidate; break; }
+        }
+        setAutoScale(scale);
       }
       element.style.width = `${100 / scale}%`;
       element.style.transform = scale < 1 ? `scale(${scale})` : "none";
@@ -175,7 +193,7 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
       frame.dataset.scale = String(scale);
       // se tudo coube, a trilha fica no topo; rolar só esconderia a primeira linha
       if (contentHeight() * scale <= available + 1) frame.scrollTop = 0;
-      if (work) work.style.setProperty("--trace-h", `${Math.round(Math.max(190, Math.min(limit, head + contentHeight() * scale)))}px`);
+      if (work) work.style.setProperty("--trace-h", `${Math.round(tall ? limit : Math.max(190, Math.min(limit, head + contentHeight() * scale)))}px`);
     };
     const measure = () => {
       fit();
@@ -228,7 +246,19 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
     observer.observe(frame);
     element.querySelectorAll("[data-node]").forEach((item) => observer.observe(item));
     return () => observer.disconnect();
-  }, [nodes, thinking, compact, citedFrom, turn]);
+  }, [nodes, thinking, compact, citedFrom, turn, zoom, tall]);
+
+  // pergunta nova começa do topo: a rolagem da pergunta anterior escondia os primeiros passos
+  const turnId = turn?.id;
+  useLayoutEffect(() => {
+    viewport.current?.scrollTo({ top: 0, left: 0 });
+  }, [turnId]);
+
+  // a área ampliada volta ao normal quando a trilha é recolhida
+  useEffect(() => { if (compact) setTall(false); }, [compact]);
+
+  const shownScale = zoom ?? autoScale;
+  const stepZoom = (delta: number) => setZoom(Math.round(Math.min(1.4, Math.max(0.5, shownScale + delta)) * 100) / 100);
 
   // segue o nó mais novo
   useLayoutEffect(() => {
@@ -253,6 +283,20 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
         <h2 id="investigation-title">Investigação ao vivo</h2>
         {turn && <p className="investigation-meta">{turn.status === "running" ? (thinking ? `Pensando, etapa ${turn.step}` : "Usando ferramentas") : `${steps} ${steps === 1 ? "ação" : "ações"} em ${seconds} s`}</p>}
         <span className="toolbar-gap" />
+        {turn && !compact && (
+          <div className="zoom-control" role="group" aria-label="Zoom da investigação">
+            <button type="button" onClick={() => stepZoom(-0.1)} disabled={shownScale <= 0.5} aria-label="Diminuir zoom"><Icon name="minus" size={15} /></button>
+            <button type="button" className={`zoom-value ${zoom === null ? "is-auto" : ""}`} onClick={() => setZoom(null)} title="Ajustar para caber">
+              {zoom === null ? "Ajustar" : `${Math.round(zoom * 100)}%`}
+            </button>
+            <button type="button" onClick={() => stepZoom(0.1)} disabled={shownScale >= 1.4} aria-label="Aumentar zoom"><Icon name="plus" size={15} /></button>
+          </div>
+        )}
+        {turn && !compact && (
+          <button type="button" className="ghost-button icon-only" onClick={() => setTall((value) => !value)} aria-pressed={tall} aria-label={tall ? "Voltar a área ao tamanho normal" : "Ampliar a área da investigação"} title={tall ? "Tamanho normal" : "Ampliar"}>
+            <Icon name={tall ? "shrink" : "grow"} size={16} />
+          </button>
+        )}
         {turn && turn.status !== "running" && turn.events.length > 0 && (
           <button type="button" className="ghost-button" onClick={onReplay} disabled={replaying}><Icon name="replay" size={16} />{replaying ? "Revendo" : "Rever"}</button>
         )}
