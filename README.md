@@ -1,12 +1,85 @@
+<div align="center">
+
+<img src="public/mascot/success.svg" alt="Aster, o mascote: uma flor verde sorrindo" width="132">
+
 # Aster
 
-Agente de estudos da disciplina de Inteligência Artificial. O aluno pergunta, o Aster pesquisa nas aulas, abre a página certa, complementa com a web quando ajuda e responde citando cada fonte. Cada passo do agente aparece ao vivo na tela.
+**O agente de estudos que mostra de onde tirou cada resposta.**
 
-## Executar
+O aluno pergunta. O Aster pesquisa nas 12 aulas, abre a página certa, complementa com a internet<br>
+e responde citando cada fonte. Cada passo aparece na tela no momento em que acontece.
 
-Requer Node.js 22+ e Python 3.11+.
+<br>
 
-**Windows, com dois cliques:** abra o `iniciar.bat`. Na primeira vez ele cria o `.env`, o ambiente Python e instala as dependências; depois sobe a API e o site e abre o navegador.
+<img src="docs/telas/02-investigacao.png" alt="Tela Estudar: a conversa à esquerda, a investigação ao vivo no alto e o slide citado embaixo" width="920">
+
+</div>
+
+<br>
+
+> Trabalho da disciplina de Inteligência Artificial (SENAC, prof. Daniel Cavalcante). Os PDFs das aulas não fazem parte do repositório.
+
+## Sumário
+
+- [O que ele faz](#-o-que-ele-faz)
+- [Telas](#-telas)
+- [Como rodar](#-como-rodar)
+- [Como funciona](#-como-funciona)
+- [A busca nas aulas](#-a-busca-nas-aulas)
+- [Modelos e chaves](#-modelos-e-chaves)
+- [Laboratório](#-laboratório)
+- [Simulados](#-simulados)
+- [Rotas da API](#-rotas-da-api)
+- [Segurança](#-segurança)
+- [Estrutura de pastas](#-estrutura-de-pastas)
+- [Testes](#-testes)
+
+## <img src="docs/icones/sobre.svg" width="22" align="center" alt=""> O que ele faz
+
+| | |
+| --- | --- |
+| **Pesquisa de verdade** | Quem decide os passos é o modelo de IA. Ele escolhe quando buscar nas aulas, quando abrir uma página e quando ir à internet. |
+| **Mostra a fonte** | Cada frase da resposta aponta o slide ou o site que a sustenta. Clicar na citação abre a página com o trecho marcado. |
+| **Não inventa citação** | O servidor recusa qualquer resposta que cite uma fonte que a IA não recebeu das ferramentas. |
+| **Investigação ao vivo** | Cada busca, leitura e pesquisa vira um bloco desenhado na tela pelo cursor do Aster, com zoom e modo ampliado. |
+| **Vai além das aulas** | Perguntas fora da matéria são respondidas pela web (Google, DuckDuckGo ou Wikipédia), com o aviso de que saíram do material. |
+| **Não para se um modelo cair** | Há uma fila de modelos do Gemini, do ChatGPT e da NVIDIA. Se um falha, o próximo assume com o que já foi achado. |
+| **Explica a si mesmo** | O Laboratório mostra, com os dados reais, as 8 etapas que uma pergunta percorre, cada uma ligada à aula que a ensina. |
+
+## <img src="docs/icones/telas.svg" width="22" align="center" alt=""> Telas
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/telas/01-inicio.png" alt="Tela inicial com o campo de pergunta e sugestões"></td>
+    <td width="50%"><img src="docs/telas/03-resposta.png" alt="Resposta com citações e o slide aberto com o trecho marcado"></td>
+  </tr>
+  <tr>
+    <td><b>Início.</b> Uma pergunta e quatro sugestões.</td>
+    <td><b>Resposta.</b> Citações clicáveis, lista de fontes e o slide com o trecho marcado.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/telas/04-laboratorio.png" alt="Laboratório na etapa de busca, com o roteiro de fala no topo"></td>
+    <td><img src="docs/telas/05-rede-neural.png" alt="Rede neural treinando no navegador"></td>
+  </tr>
+  <tr>
+    <td><b>Laboratório.</b> Cada etapa abre com um roteiro de fala em linguagem simples.</td>
+    <td><b>Rede neural.</b> Uma MLP treinada no navegador com os pares reais de pergunta e trecho.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/telas/07-avaliacao.png" alt="Avaliação com anéis e placar das 26 perguntas"></td>
+    <td><img src="docs/telas/06-simulados.png" alt="Tela de simulados"></td>
+  </tr>
+  <tr>
+    <td><b>Avaliação.</b> O placar das 26 perguntas de teste, uma peça por pergunta.</td>
+    <td><b>Simulados.</b> Questões com gabarito que aponta a página da aula.</td>
+  </tr>
+</table>
+
+## <img src="docs/icones/executar.svg" width="22" align="center" alt=""> Como rodar
+
+Requer **Node.js 22+** e **Python 3.11+**.
+
+**Windows, com dois cliques:** abra o `iniciar.bat`. Na primeira vez ele cria o `.env`, o ambiente Python e instala as dependências. Depois sobe a API e o site e abre o navegador.
 
 **Pelo terminal:**
 
@@ -24,69 +97,104 @@ Em outro terminal:
 npm run dev
 ```
 
-Antes de iniciar a API, preencha `GEMINI_API_KEY` no `.env`. Reinicie a API depois de alterar esse arquivo. Abra `http://localhost:3000`.
+Abra `http://127.0.0.1:3000`. A chave de IA pode ir no `.env` (`GEMINI_API_KEY`) ou ser colada no painel **Modelos de IA**, dentro do próprio site.
 
-`npm run dev` escuta só neste computador, para que ninguém na mesma rede (o Wi-Fi da sala, por exemplo) troque as chaves de IA ou gaste a cota. Para abrir no celular durante o desenvolvimento, use `npm run dev:rede` numa rede confiável.
+Coloque os arquivos `Aula 1.pdf` a `Aula 12.pdf` na raiz do projeto. Outros PDFs entram por `data/materials/`.
 
-Para usar a API em outra porta, defina `ASTER_API_ORIGIN` antes de iniciar o Next, por exemplo `$env:ASTER_API_ORIGIN = "http://127.0.0.1:8010"`.
+| Variável | Padrão | Para que serve |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | vazio | Chave do Gemini. Sem nenhuma chave, o Aster roda um caminho fixo, sem IA, e avisa na tela |
+| `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` | `gemini-4-hydrogen`, `gemini-3.5-flash-lite` | Fila usada quando nenhuma foi salva pelo painel |
+| `OPENAI_API_KEY`, `NVIDIA_API_KEY` | vazio | Chaves dos outros provedores |
+| `ASTER_PERGUNTAS_POR_MINUTO` | `12` | Limite de perguntas por IP (`0` desliga) |
+| `ASTER_TEMPO_MAXIMO` | `90` | Segundos que uma pergunta pode levar, somando todos os modelos |
+| `ASTER_WEB_GOOGLE`, `ASTER_WEB_DUCKDUCKGO` | `1` | `0` desliga cada buscador |
+| `ASTER_API_ORIGIN` | `http://127.0.0.1:8000` | Endereço da API visto pelo site |
 
-## Como o agente trabalha
+`npm run dev` escuta só neste computador, para que ninguém na mesma rede troque as chaves ou gaste a cota. Para abrir no celular, use `npm run dev:rede` numa rede confiável.
 
-A API (`api/main.py`) entrega ao Gemini estas ferramentas, e o modelo decide quais usar e em que ordem:
+## <img src="docs/icones/fluxo.svg" width="22" align="center" alt=""> Como funciona
+
+<img src="docs/diagramas/caminho-da-pergunta.svg" alt="Fluxograma: pergunta, proteções, agente de IA com três ferramentas, verificação das citações e resposta" width="100%">
+
+A API entrega ao modelo estas ferramentas, e ele decide quais usar e em que ordem:
 
 | Ferramenta | O que faz |
 | --- | --- |
-| `buscar_nas_aulas` | Busca por palavras-chave nos trechos dos 12 PDFs, com tolerância a plural e sufixos. A IA escolhe os termos e pode restringir a uma aula. |
-| `ler_pagina` | Abre uma página inteira e devolve os trechos citáveis dela. |
-| `pesquisar_na_web` | Pesquisa na internet. Usa o Google Search do Gemini quando a cota permite; se não, a Wikipédia. |
-| `responder` | Entrega a resposta em blocos, cada um com os ids das fontes. O servidor recusa ids que a IA não recebeu das ferramentas, e a IA corrige. |
-| `conversar` | Responde cumprimentos e perguntas sobre o próprio Aster, sem pesquisa. |
-| `sem_base` | Usada quando nem as aulas nem a web sustentam uma resposta. |
+| `buscar_nas_aulas` | Procura por palavras-chave nos trechos dos PDFs. A IA escolhe os termos e pode restringir a uma aula |
+| `ler_pagina` | Abre uma página inteira e devolve os trechos citáveis dela |
+| `pesquisar_na_web` | Pesquisa na internet: Google pelo Gemini quando há cota, depois DuckDuckGo, depois Wikipédia. Até 3 por pergunta, sem repetir termos |
+| `responder` | Entrega a resposta em blocos, cada um com os ids das fontes |
+| `conversar` | Responde cumprimentos e perguntas sobre o próprio Aster, sem pesquisa |
+| `sem_base` | Usada quando nem as aulas nem a web sustentam uma resposta |
 
-Cada chamada de ferramenta vira um evento SSE (`tool_call`, `search_results`, `page_read`, `web_results`, `answer_check`, `answer_ready`). A interface encena esses eventos: o cursor Aster vai até o nó, a página abre, o trecho citado é selecionado e a resposta é escrita. Em cada ferramenta a IA informa, numa frase, por que está fazendo aquilo; essa frase aparece na tela.
+Cada chamada vira um evento enviado ao navegador por SSE (`tool_call`, `search_results`, `page_read`, `web_results`, `answer_check`, `answer_ready`). A interface encena esses eventos: o cursor do Aster desenha o bloco, a página abre, o trecho citado é selecionado e a resposta é escrita.
 
-Sem `GEMINI_API_KEY`, a API roda um caminho fixo (busca, leitura da primeira página, trechos copiados) e a interface avisa que não há IA envolvida.
+<img src="docs/diagramas/arquitetura.svg" alt="Arquitetura em três camadas: navegador com Next.js, API em FastAPI e os serviços externos" width="100%">
 
-## Modelos, chaves e provedores
+## <img src="docs/icones/busca.svg" width="22" align="center" alt=""> A busca nas aulas
+
+Os 12 PDFs viram **499 páginas** e **2.277 trechos**, cada um com um id (`aula-6-p25-s0`) que depois vira a citação. A pergunta passa por normalização, remoção de palavras vazias e corte de sufixos. Cada trecho recebe uma nota:
+
+```
+nota = palavras no trecho + palavras no título + título enxuto + cobertura da pergunta
+```
+
+O "título enxuto" premia o slide cujo título é quase só o termo perguntado, que costuma ser o da definição. A página vale pelo melhor trecho mais um pouco do segundo.
+
+A busca é medida em 26 perguntas com a página certa conferida (`api/eval_set.py`):
+
+| | Antes | Agora |
+| --- | --- | --- |
+| Página certa em 1º lugar | 65% | **81%** |
+| Entre as 3 primeiras | 65% | **85%** |
+| Entre as 6 que o agente lê | 92% | 92% |
+| MRR | 0,71 | **0,84** |
+
+O ganho aparece nos dois grupos de perguntas (simulados e conceitos do sistema). Os erros que sobram são perguntas em forma de situação, em que o aluno descreve o problema sem usar o termo do slide. É o limite da busca por palavras, e a etapa de embeddings do Laboratório mostra o caminho para resolver.
+
+## <img src="docs/icones/modelos.svg" width="22" align="center" alt=""> Modelos e chaves
 
 O botão de modelo na barra superior abre o painel **Modelos de IA**. Nele dá para:
 
-- colar chaves do **Gemini**, do **ChatGPT** (OpenAI) e da **NVIDIA**; elas ficam em `data/settings.json`, fora do Git, e o navegador só recebe o final mascarado;
+- colar chaves do **Gemini**, do **ChatGPT** (OpenAI) e da **NVIDIA**, ou guardar no painel a chave que veio do `.env`;
 - listar os modelos que cada chave enxerga, direto da API do provedor;
 - **testar** um modelo: o teste mede o tempo de resposta e confirma se ele chama ferramentas, o que o agente exige;
-- montar a **fila do agente**: o Aster usa o primeiro modelo e passa ao próximo se ele falhar, ficar sem cota ou demorar demais.
+- montar a **fila do agente**, na ordem em que os modelos são tentados.
 
-Sem fila salva, vale a ordem do `.env` (`GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` e `GEMINI_LAST_RESORT`). As chaves também podem vir de `OPENAI_API_KEY` e `NVIDIA_API_KEY`.
+<img src="docs/diagramas/fila-de-modelos.svg" alt="Fila de modelos: quando um falha, o próximo assume com as fontes já achadas" width="100%">
 
-## Laboratório: por dentro do Aster
+As chaves ficam em `data/settings.json`, fora do Git, e o navegador só recebe o final mascarado.
 
-A rota `/laboratorio` mostra, com os dados reais do sistema, o caminho de uma pergunta dentro do Aster. Cada etapa é explicada pela aula correspondente e usa a última pergunta feita na tela Estudar (ou outra digitada ali):
+## <img src="docs/icones/laboratorio.svg" width="22" align="center" alt=""> Laboratório
 
-1. **Ingestão e chunking** (Aula 6, p. 33-34): os 12 PDFs viram 499 páginas e 2.277 trechos; mostra o texto cru do PyMuPDF, os caracteres corrompidos corrigidos e os trechos com id.
-2. **PLN da pergunta** (Aula 4, p. 6-9): normalização, tokenização, stopwords e stemming, com as mesmas funções da busca.
-3. **Busca e ranking** (Aula 6, p. 24): a pontuação de cada candidato e o “problema do lexical”.
-4. **Embeddings** (Aula 6, p. 25-27): vetores reais do `gemini-embedding-001`, similaridade de cosseno e comparação com a ordem lexical.
-5. **Rede neural reranker** (Aula 3 e Aula 10, p. 22): uma MLP treinada no navegador com os pares reais de pergunta e trecho, com validação que deixa cada pergunta de fora.
-6. **Agente e ferramentas** (Aula 6, p. 8; Aula 10, p. 9-13): o system prompt real marcado por papel, restrições, formato e tom, as ferramentas do function calling e o ciclo ReAct da consulta.
-7. **Streaming com SSE** (Aula 7, p. 16-22): o modelo Pydantic, a `StreamingResponse` e os eventos crus com o tempo de cada um.
-8. **Avaliação** (Aula 2, p. 31-33): 26 perguntas com a página certa conferida (`api/eval_set.py`). Anéis mostram em quantas a página veio em 1º, entre as 3 e entre as 6 que o agente lê; um placar mostra cada pergunta e compara com a rede neural. Recall, precisão e MRR ficam num bloco de termos técnicos.
+A rota `/laboratorio` mostra o caminho de uma pergunta dentro do Aster, com os dados reais do sistema. Cada etapa abre com um **roteiro de fala**: uma frase simples, uma comparação do dia a dia e o que mostrar na tela. As setas do teclado trocam de etapa.
+
+| # | Etapa | Em linguagem simples | Aula |
+| --- | --- | --- | --- |
+| 1 | Ingestão e chunking | Ler as aulas e cortar em pedacinhos com endereço | Aula 6, p. 33-34 |
+| 2 | PLN da pergunta | Limpar a pergunta e ficar só com as palavras-chave | Aula 4, p. 6-9 |
+| 3 | Busca e ranking | Dar nota a cada trecho | Aula 6, p. 24 |
+| 4 | Embeddings | Buscar pelo sentido, com vetores reais do `gemini-embedding-001` | Aula 6, p. 25-27 |
+| 5 | Rede neural reranker | Uma MLP treinada no navegador reordena os candidatos | Aula 3 e Aula 10, p. 22 |
+| 6 | Agente e ferramentas | O texto de regras, as ferramentas e o ciclo pensar, agir e observar | Aula 6, p. 8 e Aula 10, p. 9-13 |
+| 7 | Streaming com SSE | Os eventos chegando um a um, com o tempo de cada | Aula 7, p. 16-22 |
+| 8 | Avaliação | Anéis e placar das 26 perguntas, com recall, precisão e MRR num bloco técnico | Aula 2, p. 31-33 |
 
 Quando o Aster cita uma página coberta por uma etapa, a resposta oferece abri-la no Laboratório.
 
-## Modelos e erros
+## <img src="docs/icones/simulados.svg" width="22" align="center" alt=""> Simulados
 
-`GEMINI_MODEL` define o modelo principal e `GEMINI_FALLBACK_MODEL` o reserva. Se o principal falhar por indisponibilidade, limite ou resposta inválida, o agente recomeça com o reserva. Erros de chave, cobrança e permissão aparecem sem detalhes internos. `GEMINI_THINKING` ajusta o nível de raciocínio (`minimal`, `low`, `medium`, `high`; padrão `low`).
+A rota `/simulados` tem questões em três níveis, com correção a cada questão ou só no final. Cada gabarito aponta a página da aula que o sustenta, e o link abre essa página na tela de estudo com o trecho marcado.
 
-O Google Search exige cota de busca no projeto do Gemini. Se a chave devolver 429 para a busca, o Aster usa a Wikipédia por 15 minutos e tenta o Google de novo depois. `ASTER_WEB_GOOGLE=0` desliga o Google de vez.
-
-## Rotas da API
+## <img src="docs/icones/rotas.svg" width="22" align="center" alt=""> Rotas da API
 
 A documentação interativa fica em `http://127.0.0.1:8000/docs` (Swagger) e `/redoc`.
 
 | Método | Rota | O que faz |
 | --- | --- | --- |
 | `POST` | `/api/tutor/runs` | Faz uma pergunta e recebe os passos do agente em SSE |
-| `GET` | `/api/health` | Mostra se a API está no ar e quais modelos estão configurados |
+| `GET` | `/api/health` | Mostra se a API está no ar e o modelo ativo |
 | `GET` | `/api/materials` | Lista as aulas indexadas |
 | `GET` | `/api/materials/{aula}/pdf` e `/pages/{página}` | Entrega o PDF e o texto de uma página |
 | `GET`, `PUT`, `DELETE` | `/api/settings/...` | Chaves e fila de modelos (só no próprio computador) |
@@ -109,28 +217,53 @@ Todo erro volta no mesmo formato, com uma mensagem em português:
 | 429 | `too_many_questions` | Mais perguntas por minuto do que o limite, com `Retry-After` |
 | 500 | `internal_error` | Erro inesperado; o detalhe fica só no log do servidor |
 
-Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida) não viram erro HTTP: chegam como evento `model_fallback` e o próximo modelo da fila assume.
+Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida) não viram erro HTTP. Chegam como evento `model_fallback`, e o próximo modelo da fila assume.
 
-## Segurança
+## <img src="docs/icones/seguranca.svg" width="22" align="center" alt=""> Segurança
 
 - **Chaves:** ficam no `.env` ou em `data/settings.json`, ambos fora do Git. O navegador só recebe o final mascarado.
 - **Só no próprio computador:** `npm run dev` escuta em 127.0.0.1, e as rotas de chaves recusam pedidos de outros IPs.
-- **Limite de perguntas:** 12 por minuto por IP (`ASTER_PERGUNTAS_POR_MINUTO`, 0 desliga).
+- **Limite de perguntas:** 12 por minuto por IP.
 - **Dados pessoais:** CPF, cartão, e-mail e telefone são trocados por marcadores antes de a pergunta ir para a IA ou para a busca na web, e a resposta avisa o que foi ocultado.
-- **Prompt injection:** a pergunta vai entre `<pergunta_do_aluno>` e o system prompt manda tratar a pergunta, a conversa e tudo o que as ferramentas devolvem (slides e páginas da web) como dado, nunca como instrução.
+- **Prompt injection:** a pergunta vai entre `<pergunta_do_aluno>`, e o texto de regras manda tratar a pergunta, a conversa e tudo o que as ferramentas devolvem (slides e páginas da web) como dado, nunca como instrução.
 - **Citações conferidas:** o servidor recusa respostas que citem fontes que a IA não recebeu.
+- **Limite de tempo:** uma pergunta para em 90 segundos, somando todos os modelos.
 
-## Materiais
+## <img src="docs/icones/pastas.svg" width="22" align="center" alt=""> Estrutura de pastas
 
-Os arquivos `Aula 1.pdf` a `Aula 12.pdf` na raiz entram na busca. Outros PDFs podem ser colocados em `data/materials/`. Ambos os locais são ignorados pelo Git. `Prova 1.pdf` fica fora da busca. PPTX deve ser exportado para PDF antes. Páginas digitalizadas sem texto ainda não são indexadas.
+```
+├── api/
+│   ├── main.py          # agente, pesquisa na web e rotas
+│   ├── library.py       # leitura dos PDFs, trechos e busca
+│   ├── providers.py     # Gemini, OpenAI e NVIDIA atrás da mesma interface
+│   ├── security.py      # limite por IP, dados pessoais e erros legíveis
+│   ├── lab.py           # dados das etapas do Laboratório
+│   ├── eval_set.py      # as 26 perguntas de avaliação
+│   └── test_main.py     # testes da API
+├── app/                 # rotas do site: Estudar, Laboratório e Simulados
+├── components/          # conversa, investigação, cursor, PDF e etapas do Laboratório
+├── lib/                 # estado da consulta, rede neural (nn.ts) e utilitários
+├── public/mascot/       # o Aster em quatro expressões
+├── docs/                # telas, diagramas e ícones deste README
+├── iniciar.bat          # sobe tudo com dois cliques no Windows
+└── .env.example         # modelo das variáveis de ambiente
+```
 
-## Simulados
+**Tecnologias:** Next.js 16, React 19, TypeScript, Tailwind 4 e Motion no site; FastAPI, Pydantic e PyMuPDF na API; SSE para o streaming.
 
-A rota `/simulados` tem 12 questões em três níveis, com correção a cada questão ou só no final. Cada gabarito aponta a página da aula que o sustenta, e o link abre essa página na tela de estudo com o trecho marcado.
-
-## Testes
+## <img src="docs/icones/testes.svg" width="22" align="center" alt=""> Testes
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest api.test_main
 npm run typecheck
 ```
+
+Os testes cobrem o loop do agente, a troca de modelo, a verificação de citações, os limites, a ocultação de dados pessoais, o formato dos erros e a qualidade da busca.
+
+<br>
+
+<div align="center">
+<img src="public/mascot/idle.svg" alt="" width="56">
+<br>
+<sub>Feito por Vitor Cavalcante Gomes</sub>
+</div>

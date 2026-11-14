@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1232 462" width="1232" height="462" role="img" aria-label="Diagrama da arquitetura do Aster">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a2a86"/><stop offset="1" stop-color="#061a5c"/></linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 9 5 1 9" fill="none" stroke="#c3d6ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="arrow-lime" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 9 5 1 9" fill="none" stroke="#d5ff6e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+  </defs>
+  <rect width="1232" height="462" rx="22" fill="url(#bg)"/>
+  <text x="36" y="48" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">Arquitetura</text>
+  <text x="36" y="72" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="14" fill="#c3d6ff">Três camadas: o site, a API e o que fica fora do computador</text>
+  <rect x="36" y="100" width="330" height="330" rx="18" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.22)"/>
+  <text x="56" y="126" text-anchor="start" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12" fill="#d5ff6e">NAVEGADOR  ·  Next.js 16 e React 19</text>
+  <rect x="56" y="142" width="290" height="80" rx="14" fill="rgba(2,14,44,0.55)" stroke="rgba(255,255,255,0.18)" stroke-width="1.4"/>
+  <text x="72" y="172" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">Estudar</text>
+  <text x="72" y="196" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">Chat, investigação ao vivo e PDF</text>
+  <rect x="56" y="234" width="290" height="80" rx="14" fill="rgba(2,14,44,0.55)" stroke="rgba(255,255,255,0.18)" stroke-width="1.4"/>
+  <text x="72" y="264" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">Laboratório</text>
+  <text x="72" y="288" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">As 8 etapas, com roteiro de fala</text>
+  <rect x="56" y="326" width="290" height="80" rx="14" fill="rgba(2,14,44,0.55)" stroke="rgba(255,255,255,0.18)" stroke-width="1.4"/>
+  <text x="72" y="356" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">Simulados</text>
+  <text x="72" y="380" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">12 questões com gabarito na aula</text>
+  <rect x="452" y="100" width="330" height="330" rx="18" fill="rgba(213,255,110,0.08)" stroke="#d5ff6e" stroke-opacity="0.55"/>
+  <text x="472" y="126" text-anchor="start" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12" fill="#d5ff6e">API  ·  FastAPI em Python</text>
+  <rect x="472" y="142" width="290" height="80" rx="14" fill="rgba(2,14,44,0.55)" stroke="rgba(255,255,255,0.18)" stroke-width="1.4"/>
+  <text x="488" y="172" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">Agente</text>
+  <text x="488" y="196" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">Loop de ferramentas e fila de modelos</text>
+  <rect x="472" y="234" width="290" height="80" rx="14" fill="rgba(2,14,44,0.55)" stroke="rgba(255,255,255,0.18)" stroke-width="1.4"/>
+  <text x="488" y="264" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">Acervo e busca</text>
+  <text x="488" y="288" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">Lê os PDFs e dá nota aos trechos</text>
+  <rect x="472" y="326" width="290" height="80" rx="14" fill="rgba(2,14,44,0.55)" stroke="rgba(255,255,255,0.18)" stroke-width="1.4"/>
+  <text x="488" y="356" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">Segurança</text>
+  <text x="488" y="380" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">Limite, dados pessoais, erros legíveis</text>
+  <rect x="868" y="100" width="328" height="330" rx="18" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.22)"/>
+  <text x="888" y="126" text-anchor="start" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12" fill="#d5ff6e">FORA DO COMPUTADOR</text>
+  <rect x="888" y="142" width="288" height="80" rx="14" fill="rgba(2,14,44,0.55)" stroke="rgba(255,255,255,0.18)" stroke-width="1.4"/>
+  <text x="904" y="172" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">Modelos de IA</text>
+  <text x="904" y="196" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">Gemini, ChatGPT e NVIDIA</text>
+  <rect x="888" y="234" width="288" height="80" rx="14" fill="rgba(2,14,44,0.55)" stroke="rgba(255,255,255,0.18)" stroke-width="1.4"/>
+  <text x="904" y="264" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">Pesquisa na web</text>
+  <text x="904" y="288" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">Google, DuckDuckGo e Wikipédia</text>
+  <rect x="888" y="326" width="288" height="80" rx="14" fill="rgba(2,14,44,0.55)" stroke="rgba(255,255,255,0.18)" stroke-width="1.4"/>
+  <text x="904" y="356" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">12 aulas em PDF</text>
+  <text x="904" y="380" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">Ficam na pasta do projeto</text>
+  <path d="M370,250 L448,250" fill="none" stroke="#d5ff6e" stroke-width="2" stroke-linecap="round" marker-end="url(#arrow-lime)"/>
+  <path d="M448,286 L370,286" fill="none" stroke="#d5ff6e" stroke-width="2" stroke-linecap="round" marker-end="url(#arrow-lime)"/>
+  <text x="409" y="240" text-anchor="middle" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="11.5" fill="#d5ff6e">pergunta</text>
+  <text x="409" y="306" text-anchor="middle" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="11.5" fill="#d5ff6e">eventos SSE</text>
+  <path d="M786,182 L864,182" fill="none" stroke="#c3d6ff" stroke-width="2" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M786,274 L864,274" fill="none" stroke="#c3d6ff" stroke-width="2" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M864,366 L786,366" fill="none" stroke="#c3d6ff" stroke-width="2" stroke-linecap="round" marker-end="url(#arrow)"/>
+</svg>

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1232 314" width="1232" height="314" role="img" aria-label="Fluxograma da fila de modelos com reserva">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a2a86"/><stop offset="1" stop-color="#061a5c"/></linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 9 5 1 9" fill="none" stroke="#c3d6ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="arrow-lime" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 9 5 1 9" fill="none" stroke="#d5ff6e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+  </defs>
+  <rect width="1232" height="314" rx="22" fill="url(#bg)"/>
+  <text x="36" y="48" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">Quando um modelo falha</text>
+  <text x="36" y="72" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="14" fill="#c3d6ff">A fila é montada no painel de modelos; o próximo assume sem perder o que já foi achado</text>
+  <rect x="36" y="110" width="260" height="84" rx="14" fill="#d5ff6e" stroke="#d5ff6e" stroke-width="1.4"/>
+  <circle cx="60" cy="135" r="11" fill="#17260a"/>
+  <text x="60" y="139.5" text-anchor="middle" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12.5" font-weight="700" fill="#d5ff6e">1</text>
+  <text x="80" y="140" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#17260a">1º da fila</text>
+  <text x="52" y="164" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#33491a">Tenta responder</text>
+  <rect x="336" y="110" width="260" height="84" rx="14" fill="rgba(255,255,255,0.10)" stroke="rgba(255,255,255,0.32)" stroke-width="1.4"/>
+  <circle cx="360" cy="135" r="11" fill="#d5ff6e"/>
+  <text x="360" y="139.5" text-anchor="middle" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12.5" font-weight="700" fill="#17260a">2</text>
+  <text x="380" y="140" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">2º da fila</text>
+  <text x="352" y="164" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">Recebe as fontes já achadas</text>
+  <rect x="636" y="110" width="260" height="84" rx="14" fill="rgba(255,255,255,0.10)" stroke="rgba(255,255,255,0.32)" stroke-width="1.4"/>
+  <circle cx="660" cy="135" r="11" fill="#d5ff6e"/>
+  <text x="660" y="139.5" text-anchor="middle" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12.5" font-weight="700" fill="#17260a">3</text>
+  <text x="680" y="140" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">3º da fila</text>
+  <text x="652" y="164" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">Mesma coisa</text>
+  <rect x="936" y="110" width="260" height="84" rx="14" fill="rgba(255,255,255,0.10)" stroke="rgba(255,255,255,0.32)" stroke-width="1.4"/>
+  <circle cx="960" cy="135" r="11" fill="#d5ff6e"/>
+  <text x="960" y="139.5" text-anchor="middle" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12.5" font-weight="700" fill="#17260a">4</text>
+  <text x="980" y="140" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="16" font-weight="650" fill="#ffffff">Último recurso</text>
+  <text x="952" y="164" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="13" fill="#c3d6ff">Modelo leve do Gemini</text>
+  <path d="M298,152 L332,152" fill="none" stroke="#c3d6ff" stroke-width="2" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <text x="316" y="102" text-anchor="middle" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="11.5" fill="#ff9a5c">falhou</text>
+  <path d="M598,152 L632,152" fill="none" stroke="#c3d6ff" stroke-width="2" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <text x="616" y="102" text-anchor="middle" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="11.5" fill="#ff9a5c">falhou</text>
+  <path d="M898,152 L932,152" fill="none" stroke="#c3d6ff" stroke-width="2" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <text x="916" y="102" text-anchor="middle" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="11.5" fill="#ff9a5c">falhou</text>
+  <rect x="36" y="226" width="1160" height="58" rx="14" fill="rgba(2,14,44,0.45)" stroke="rgba(255,255,255,0.16)"/>
+  <text x="56" y="250" text-anchor="start" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12.5" fill="#c3d6ff">sem cota: fica 60 min de fora</text>
+  <text x="56" y="270" text-anchor="start" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12.5" fill="#c3d6ff">fora do ar ou lento: 10 min de fora</text>
+  <text x="616" y="250" text-anchor="start" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12.5" fill="#c3d6ff">a pausa fica salva em disco</text>
+  <text x="616" y="270" text-anchor="start" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12.5" fill="#c3d6ff">e sobrevive a reiniciar a API</text>
+  <text x="936" y="250" text-anchor="start" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12.5" fill="#c3d6ff">limite total da pergunta:</text>
+  <text x="936" y="270" text-anchor="start" font-family="'Cascadia Code', Consolas, 'SF Mono', monospace" font-size="12.5" fill="#d5ff6e">90 segundos</text>
+</svg>
