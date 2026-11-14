@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -35,11 +36,12 @@ HAS_MATERIALS = bool(material_paths())
 
 class AgentTest(unittest.TestCase):
     def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
         self.client = TestClient(app)
         self.configured = [
             patch("api.main.gemini_api_key", return_value="configured"),
             patch("api.main.gemini_models", return_value=("primary", "backup")),
-            patch.dict(os.environ, {"GEMINI_LAST_RESORT": ""}),
+            patch.dict(os.environ, {"GEMINI_LAST_RESORT": "", "ASTER_SETTINGS": os.path.join(self.folder.name, "settings.json"), "OPENAI_API_KEY": "", "NVIDIA_API_KEY": ""}),
             patch.dict("api.main._model_blocked_until", {}, clear=True),
             patch("api.main.web_search", return_value=("wikipedia", [{"title": "RAG — Wikipédia", "url": "https://pt.wikipedia.org/wiki/RAG", "domain": "pt.wikipedia.org", "snippet": "Técnica de IA."}])),
         ]
@@ -49,6 +51,7 @@ class AgentTest(unittest.TestCase):
     def tearDown(self):
         for item in self.configured:
             item.stop()
+        self.folder.cleanup()
 
     def ask(self, question="O que são embeddings?"):
         response = self.client.post("/api/tutor/runs", json={"question": question})
@@ -56,7 +59,7 @@ class AgentTest(unittest.TestCase):
         return parse_events(response)
 
     def test_error_classes(self):
-        for status, code, fallback in [(401, "invalid_key", False), (402, "billing_required", False), (403, "access_denied", False), (404, "model_unavailable", True), (429, "rate_limited", True), (503, "service_unavailable", True)]:
+        for status, code, fallback in [(401, "invalid_key", True), (402, "billing_required", True), (403, "access_denied", True), (404, "model_unavailable", True), (429, "rate_limited", True), (503, "service_unavailable", True)]:
             with self.subTest(status=status):
                 failure = classify_generation_error(genai_errors.APIError(status, {"error": {"message": "internal detail"}}))
                 self.assertEqual((failure.code, failure.try_fallback), (code, fallback))
@@ -130,13 +133,39 @@ class AgentTest(unittest.TestCase):
         self.assertTrue(second[-1]["data"]["used_fallback"])
         self.assertIn("sem cota", next(event for event in second if event["type"] == "model_fallback")["data"]["message"])
 
-    def test_invalid_key_stops_before_backup(self):
+    def test_refused_key_moves_to_next_model_without_leaking(self):
         rejected = genai_errors.APIError(401, {"error": {"message": "secret detail"}})
         with patch("api.main.call_model", side_effect=rejected) as model:
             events = self.ask()
-        self.assertEqual(model.call_count, 1)
+        self.assertEqual(model.call_count, 2)
         self.assertEqual(events[-1]["data"]["code"], "invalid_key")
         self.assertNotIn("secret detail", events[-1]["data"]["message"])
+
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_chain_from_page_uses_openai_session(self):
+        hit = search("overfitting")[0]
+        self.client.put("/api/settings/keys/openai", json={"key": "sk-test-1234567890"})
+        self.client.put("/api/settings/chain", json={"chain": [{"provider": "openai", "model": "gpt-teste"}]})
+        sessions = []
+
+        def fake(model, session, force_final=False):
+            sessions.append((model, type(session).__name__))
+            return turn(("responder", {"blocos": [{"texto": "Ok.", "citacoes": [hit.id]}]})) if len(sessions) > 1 else turn(("buscar_nas_aulas", {"consulta": "overfitting"}))
+
+        with patch("api.main.call_model", side_effect=fake):
+            events = self.ask()
+        self.assertEqual(sessions, [("gpt-teste", "ChatSession"), ("gpt-teste", "ChatSession")])
+        self.assertEqual((events[-1]["data"]["provider"], events[-1]["data"]["model"]), ("openai", "gpt-teste"))
+
+    def test_settings_never_return_full_key(self):
+        response = self.client.put("/api/settings/keys/nvidia", json={"key": "nvapi-abcdefghijklmnop"})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("abcdefghijklmnop", response.text)
+        nvidia = next(item for item in response.json()["providers"] if item["id"] == "nvidia")
+        self.assertEqual((nvidia["configured"], nvidia["source"], nvidia["masked"]), (True, "page", "••••mnop"))
+        removed = self.client.delete("/api/settings/keys/nvidia").json()
+        self.assertFalse(next(item for item in removed["providers"] if item["id"] == "nvidia")["configured"])
+        self.assertEqual(self.client.put("/api/settings/keys/desconhecido", json={"key": "12345678"}).status_code, 404)
 
     def test_both_models_failing_return_safe_error(self):
         unavailable = genai_errors.APIError(503, {"error": {"message": "private server detail"}})
