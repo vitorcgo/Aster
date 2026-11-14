@@ -1135,3 +1135,24 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .hit-mini li svg { flex: none; margin-top: 2px; color: var(--lime); }
 .hit-mini li span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .hit-mini li b { display: block; font-weight: 650; color: var(--on-sky); }
+
+/* ------------------------------------------------------------------ laboratório: roteiro de fala */
+.talk { position: relative; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 0; margin-bottom: 18px; border-radius: var(--r-lg); background: linear-gradient(120deg, rgba(213, 255, 110, 0.16), rgba(213, 255, 110, 0.05)); border: 1px solid var(--lime-line); overflow: hidden; }
+.talk > div { padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
+.talk > div + div { border-left: 1px solid rgba(213, 255, 110, 0.22); }
+.talk-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--lime); }
+.talk-say p { font-size: 19px; line-height: 1.42; font-weight: 520; color: var(--on-sky); }
+.talk-like p { font-size: 16px; line-height: 1.45; color: var(--on-sky); font-style: italic; }
+.talk-point { padding-right: 44px !important; }
+.talk-point ol { display: flex; flex-direction: column; gap: 6px; }
+.talk-point li { display: flex; align-items: flex-start; gap: 8px; font-size: 14.5px; line-height: 1.4; color: var(--on-sky); }
+.talk-point li span { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: var(--lime); color: var(--lime-ink); font-family: var(--font-mono); font-size: 12px; font-weight: 650; }
+.talk-toggle { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; color: var(--on-sky-2); cursor: pointer; }
+.talk-toggle:hover { background: var(--glass-tint-2); color: var(--on-sky); }
+.talk-show { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; margin-bottom: 16px; border-radius: 10px; border: 1px solid var(--lime-line); background: var(--lime-soft); color: var(--lime); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.stage-keys { margin-left: auto; margin-right: 12px; align-self: center; font-family: var(--font-mono); font-size: 12.5px; color: var(--on-sky-3); }
+@media (max-width: 980px) {
+  .talk { grid-template-columns: 1fr; }
+  .talk > div + div { border-left: 0; border-top: 1px solid rgba(213, 255, 110, 0.22); }
+  .stage-keys { display: none; }
+}

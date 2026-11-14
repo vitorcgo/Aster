@@ -15,7 +15,7 @@ import { StageReranker, type RQuery } from "@/components/lab/StageReranker";
 import { StageSearch } from "@/components/lab/StageSearch";
 import { StageStream } from "@/components/lab/StageStream";
 import { lectureLabel, type RunEvent } from "@/lib/aster";
-import { labGet, recallQuestion, recallRun, STAGES, type SearchResult, type StageId } from "@/lib/lab";
+import { labGet, recallQuestion, recallRun, STAGES, TALK, type SearchResult, type StageId } from "@/lib/lab";
 
 export default function Laboratorio() {
   const [stageId, setStageId] = useState<StageId>("ingestao");
@@ -27,8 +27,19 @@ export default function Laboratorio() {
   const [neural, setNeural] = useState<((query: RQuery) => number | null) | null>(null);
   const [relevance, setRelevance] = useState<RQuery[] | null>(null);
   const runAbort = useRef<AbortController | null>(null);
+  // roteiro de fala: fica ligado por padrão e a escolha é lembrada neste navegador
+  const [script, setScript] = useState(true);
 
   useEffect(() => () => runAbort.current?.abort(), []);
+
+  useEffect(() => {
+    try { if (localStorage.getItem("aster:roteiro") === "0") setScript(false); } catch { /* sem armazenamento, fica ligado */ }
+  }, []);
+
+  const toggleScript = () => setScript((value) => {
+    try { localStorage.setItem("aster:roteiro", value ? "0" : "1"); } catch { /* idem */ }
+    return !value;
+  });
 
   useEffect(() => {
     const parameters = new URLSearchParams(window.location.search);
@@ -99,6 +110,21 @@ export default function Laboratorio() {
   const stage = STAGES[index];
   const next = STAGES[index + 1];
   const previous = STAGES[index - 1];
+  const talk = TALK[stageId];
+
+  // setas do teclado trocam de etapa, como num controle de slides
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const move = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      const target_stage = move ? STAGES[index + move] : null;
+      if (target_stage) { event.preventDefault(); select(target_stage.id); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [index]);
 
   return (
     <div className="lab">
@@ -118,7 +144,7 @@ export default function Laboratorio() {
             <button key={item.id} type="button" className="xray-step" aria-pressed={item.id === stageId} onClick={() => select(item.id)}>
               {item.id === stageId && <motion.span className="xray-pill" layoutId="xray-pill" transition={{ type: "spring", stiffness: 420, damping: 36 }} />}
               <span className="xray-n">{position + 1}</span>
-              <span className="xray-text"><strong>{item.title}</strong><small>{item.lecture}</small></span>
+              <span className="xray-text"><strong>{TALK[item.id].plain}</strong><small>{item.title}</small></span>
             </button>
           ))}
         </nav>
@@ -126,7 +152,7 @@ export default function Laboratorio() {
         <section className="lab-panel" aria-labelledby="stage-title">
           <header className="lab-head">
             <div>
-              <p className="stage-kicker">Etapa {index + 1} de {STAGES.length}</p>
+              <p className="stage-kicker">Etapa {index + 1} de {STAGES.length} · {stage.title} · {stage.lecture}</p>
               <h2 id="stage-title">{stage.question}</h2>
             </div>
             <div className="lab-refs">
@@ -137,6 +163,29 @@ export default function Laboratorio() {
               ))}
             </div>
           </header>
+          <AnimatePresence mode="wait" initial={false}>
+            {script ? (
+              <motion.aside key={`talk-${stageId}`} className="talk" aria-label="Roteiro de fala desta etapa" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
+                <div className="talk-say">
+                  <span className="talk-label">Em uma frase</span>
+                  <p>{talk.say}</p>
+                </div>
+                <div className="talk-like">
+                  <span className="talk-label">Comparação</span>
+                  <p>{talk.like}</p>
+                </div>
+                <div className="talk-point">
+                  <span className="talk-label">O que mostrar na tela</span>
+                  <ol>{talk.point.map((item, position) => <li key={item}><span>{position + 1}</span>{item}</li>)}</ol>
+                </div>
+                <button type="button" className="talk-toggle" onClick={toggleScript} aria-label="Esconder o roteiro de fala"><Icon name="close" size={15} /></button>
+              </motion.aside>
+            ) : (
+              <motion.button key="talk-off" type="button" className="talk-show" onClick={toggleScript} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <Icon name="chat" size={15} />Mostrar o roteiro de fala
+              </motion.button>
+            )}
+          </AnimatePresence>
           {searchError && <p className="sheet-error">{searchError}</p>}
           <AnimatePresence mode="wait">
             <motion.div key={stageId} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.28, ease: [0.23, 1, 0.32, 1] }}>
@@ -151,8 +200,9 @@ export default function Laboratorio() {
             </motion.div>
           </AnimatePresence>
           <footer className="stage-nav">
-            {previous ? <button type="button" className="secondary-button" onClick={() => select(previous.id)}><Icon name="left" size={16} />{previous.title}</button> : <span />}
-            {next && <button type="button" className="primary-button small" onClick={() => select(next.id)}>Próxima: {next.title}<Icon name="right" size={16} /></button>}
+            {previous ? <button type="button" className="secondary-button" onClick={() => select(previous.id)}><Icon name="left" size={16} />{TALK[previous.id].plain}</button> : <span />}
+            <span className="stage-keys" aria-hidden="true">← → trocam de etapa</span>
+            {next && <button type="button" className="primary-button small" onClick={() => select(next.id)}>Próxima: {TALK[next.id].plain}<Icon name="right" size={16} /></button>}
           </footer>
         </section>
       </main>

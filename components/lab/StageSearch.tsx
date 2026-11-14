@@ -26,9 +26,9 @@ export function StageSearch({ search, question }: { search: SearchResult | null;
         <div className="flow-step"><strong>{search.candidates.length}</strong><span>passam no filtro e viram candidatos</span></div>
       </div>
       <div className="formula-card">
-        <span>Pontuação de cada trecho</span>
-        <code>2,4 × termos no trecho ÷ √tamanho + 1,2 × termos no título ÷ termos da pergunta + cobertura</code>
-        <p className="lab-note">Trechos curtos que concentram os termos sobem, um pouco como o TF-IDF da Aula 4, p. 14. Só entram trechos que cobrem pelo menos metade dos termos da pergunta, e cada página entra no máximo duas vezes.</p>
+        <span>Como a nota de cada trecho é calculada</span>
+        <code>palavras no trecho + palavras no título + título enxuto + cobertura da pergunta</code>
+        <p className="lab-note">Em números: 2,4 × termos no trecho ÷ √tamanho + 1,2 × termos no título ÷ termos da pergunta + 2,5 × (termos no título ÷ tamanho do título) + cobertura. Trechos curtos que concentram os termos sobem, um pouco como o TF-IDF da Aula 4, p. 14. O “título enxuto” premia o slide cujo título é quase só o termo perguntado, que costuma ser o da definição. Só entram trechos que cobrem pelo menos metade dos termos, e cada página entra no máximo duas vezes.</p>
       </div>
       {search.candidates.length === 0 && (
         <p className="lab-insight">Nenhum trecho cobre pelo menos metade dos termos da pergunta, então a busca não devolve nada. O agente fica sabendo que o assunto não está nas aulas e vai para a web.</p>

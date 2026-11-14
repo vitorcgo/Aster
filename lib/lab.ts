@@ -95,3 +95,58 @@ export type Candidate = {
 };
 
 export type SearchResult = { terms: string[]; matched: number; total: number; candidates: Candidate[] };
+
+
+/** Roteiro de fala de cada etapa: o nome simples, uma frase, uma comparação e o que apontar na tela. */
+export type Talk = { plain: string; say: string; like: string; point: string[] };
+
+export const TALK: Record<StageId, Talk> = {
+  ingestao: {
+    plain: "Ler as aulas",
+    say: "Antes de responder qualquer coisa, o Aster lê os 12 PDFs e corta o texto em pedacinhos. Cada pedacinho ganha um endereço: aula, página e número.",
+    like: "É como recortar o livro em fichas de estudo e anotar no verso de onde cada uma saiu.",
+    point: ["Os números do acervo: quantas aulas, páginas e trechos", "O texto cru de uma página e os trechos que saíram dela", "O id de cada trecho: é ele que vira a citação na resposta"],
+  },
+  pln: {
+    plain: "Entender a pergunta",
+    say: "O Aster limpa a pergunta: tira os acentos, joga fora palavras que não dizem nada, como “o”, “que” e “é”, e corta o final das palavras para “embeddings” e “embedding” virarem a mesma coisa.",
+    like: "É como grifar só as palavras-chave do enunciado de uma prova.",
+    point: ["A pergunta original e o que sobra depois de cada passo", "As palavras riscadas, que são descartadas", "O que sobra no fim: é isso que vai para a busca"],
+  },
+  busca: {
+    plain: "Procurar nos slides",
+    say: "Com as palavras-chave, o Aster dá uma nota para cada trecho. Ganha ponto quem tem as palavras da pergunta, e ganha mais quando elas estão no título do slide.",
+    like: "É como olhar o índice do livro antes de folhear página por página.",
+    point: ["A lista de candidatos, em ordem de nota", "As palavras que bateram em cada trecho", "O limite: se o aluno usar um sinônimo que não está no slide, essa busca não acha"],
+  },
+  embeddings: {
+    plain: "Buscar pelo sentido",
+    say: "Embedding transforma um texto numa lista de números. Textos com sentido parecido ficam com números parecidos, mesmo usando palavras diferentes.",
+    like: "É como um mapa: “gato” e “cachorro” moram no mesmo bairro, e “carro” mora longe.",
+    point: ["O mapa com a pergunta e os trechos como pontos", "Os pontos mais perto da pergunta são os mais parecidos", "A comparação com a ordem da busca por palavras"],
+  },
+  reranker: {
+    plain: "Uma rede neural reordena",
+    say: "Treinamos uma rede neural pequena, aqui mesmo no navegador, para aprender quais trechos costumam ser a resposta certa e colocar esses na frente.",
+    like: "É como um aluno fazendo lista de exercícios: erra, confere o gabarito, ajusta e vai errando menos.",
+    point: ["Os neurônios e as ligações mudando durante o treino", "O erro da rede caindo a cada rodada", "O teste com perguntas novas, que é o número honesto"],
+  },
+  agente: {
+    plain: "A IA decide os passos",
+    say: "Quem decide o que fazer é o modelo de IA. Ele recebe regras e uma caixa de ferramentas, e escolhe sozinho quando buscar, quando abrir uma página e quando responder.",
+    like: "É como um estagiário com um manual e acesso à biblioteca: ele escolhe o que consultar, mas precisa mostrar de onde tirou.",
+    point: ["O texto de regras, colorido por tipo de instrução", "As ferramentas que ele pode chamar", "O ciclo pensar, agir e observar numa pergunta de verdade"],
+  },
+  streaming: {
+    plain: "A resposta chega ao vivo",
+    say: "O servidor não espera terminar para mandar tudo de uma vez. Ele envia cada passo assim que acontece, e é por isso que a tela se mexe enquanto a IA trabalha.",
+    like: "É como acompanhar um pedido no aplicativo de entrega: saiu, está a caminho, chegou.",
+    point: ["Os eventos chegando um a um, com o tempo de cada", "O formato de um evento", "Rodar a pergunta e ver a lista crescer"],
+  },
+  avaliacao: {
+    plain: "Medir se funciona",
+    say: "Para saber se a busca é boa, fizemos 26 perguntas com gabarito e contamos em quantas a página certa apareceu em primeiro lugar.",
+    like: "É uma prova para o próprio sistema, com nota no final.",
+    point: ["Os três anéis: de primeira, entre as 3 e entre as 6", "O placar: cada quadradinho é uma pergunta", "Clicar num quadradinho que errou e mostrar qual era a página certa"],
+  },
+};
