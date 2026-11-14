@@ -1326,3 +1326,5 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .owner-link { align-self: center; display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--on-sky-3); font: inherit; font-size: 13px; cursor: pointer; }
 .owner-link:hover { color: var(--on-sky); background: var(--glass-tint); }
 .owner-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; }
+
+.memory-panel .memory-title + .memory-empty { margin-bottom: 4px; }

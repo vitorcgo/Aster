@@ -187,11 +187,14 @@ class AgentTest(unittest.TestCase):
             return MagicMock()
 
         script = [turn(("lembrar", {"fato": "O aluno se chama Vitor."})), turn(("conversar", {"texto": "Prazer, Vitor!"}))]
-        body = {"question": "me chamo Vitor, guarda aí", "memory": ["Prefere exemplos em Python."], "context": [{"question": "o que é RAG?", "answer": "É busca mais geração."}]}
+        body = {"question": "me chamo Vitor, guarda aí", "memory": ["Prefere exemplos em Python."], "context": [{"question": "o que é RAG?", "answer": "É busca mais geração."}], "history": ["como fazer um McLanche Feliz", "o que é HTML"]}
         with patch("api.main.make_session", side_effect=capture), patch("api.main.call_model", side_effect=script):
             events = parse_events(self.client.post("/api/tutor/runs", json=body))
         self.assertIn("<memoria_do_aluno>\n- Prefere exemplos em Python.", prompts[0])
         self.assertIn("<conversa_anterior>", prompts[0])
+        # perguntas antigas vão em ordem, antes das trocas recentes
+        self.assertIn("<perguntas_anteriores>\n1. como fazer um McLanche Feliz\n2. o que é HTML", prompts[0])
+        self.assertLess(prompts[0].index("<perguntas_anteriores>"), prompts[0].index("<conversa_anterior>"))
         saved = [event["data"]["fact"] for event in events if event["type"] == "memory_saved"]
         self.assertEqual(saved, ["O aluno se chama Vitor."])
         # lembrar não vira bloco na investigação

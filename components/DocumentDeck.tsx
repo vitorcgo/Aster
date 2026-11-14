@@ -9,9 +9,10 @@ import { faviconUrl, lectureLabel, siteName, type PagePayload, type WebSource, p
 
 const PdfViewer = dynamic(() => import("./PdfViewer"), { ssr: false, loading: () => <div className="pdf-boot" /> });
 
+/** Uma fonte aberta. `turn` é a pergunta dona dela: cada pergunta mostra só as próprias fontes. */
 export type DocTab =
-  | { id: string; kind: "page"; page: PagePayload }
-  | { id: string; kind: "web"; query: string; provider: string; results: WebSource[] };
+  | { id: string; kind: "page"; page: PagePayload; turn?: string }
+  | { id: string; kind: "web"; query: string; provider: string; results: WebSource[]; turn?: string };
 
 type Props = {
   tabs: DocTab[];
@@ -23,6 +24,8 @@ type Props = {
   scanning: boolean;
   onRendered: () => void;
   onEvidence: () => void;
+  /** texto do estado vazio, conforme a pergunta ativa */
+  empty?: string;
 };
 
 // várias pesquisas na web viram várias abas; o termo pesquisado as diferencia
@@ -68,7 +71,7 @@ function WebPanel({ tab, focusId }: { tab: Extract<DocTab, { kind: "web" }>; foc
   );
 }
 
-export function DocumentDeck({ tabs, activeId, drawId, onSelect, highlights, focusWebId, scanning, onRendered, onEvidence }: Props) {
+export function DocumentDeck({ tabs, activeId, drawId, onSelect, highlights, focusWebId, scanning, onRendered, onEvidence, empty }: Props) {
   const active = tabs.find((tab) => tab.id === activeId) ?? tabs[tabs.length - 1] ?? null;
   const strip = useRef<HTMLDivElement>(null);
 
@@ -96,7 +99,7 @@ export function DocumentDeck({ tabs, activeId, drawId, onSelect, highlights, foc
           {!active ? (
             <motion.div key="empty" className="deck-empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <Icon name="book" size={28} />
-              <p>As páginas que o Aster abrir e os sites que ele consultar aparecem aqui.</p>
+              <p>{empty ?? "As páginas que o Aster abrir e os sites que ele consultar aparecem aqui."}</p>
             </motion.div>
           ) : (
             <motion.div key={active.id} className="deck-slot" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }}>

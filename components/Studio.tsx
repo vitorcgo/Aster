@@ -23,7 +23,9 @@ const SUGGESTIONS = [
   "O que é cold start em sistemas de recomendação?",
 ];
 
+// fontes por pergunta e no total: as perguntas antigas guardam as delas para quando o aluno voltar
 const MAX_TABS = 8;
+const MAX_ALL_TABS = 40;
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
@@ -40,6 +42,8 @@ function readSession(): SavedSession | null {
     const saved = JSON.parse(raw) as SavedSession;
     // uma resposta que estava chegando quando a página recarregou não volta sozinha
     saved.turns = saved.turns.map((turn) => (turn.status === "running" ? { ...turn, status: "failed", thinking: false, message: "A página recarregou antes de a resposta terminar. Pergunte de novo." } : turn));
+    // sessões de antes das fontes por pergunta: as abas ficam com a pergunta que estava na tela
+    saved.tabs = (saved.tabs ?? []).map((tab) => (tab.turn ? tab : { ...tab, turn: saved.activeTurnId ?? undefined }));
     return saved;
   } catch {
     return null;
@@ -62,6 +66,8 @@ export function Studio({ active = true }: { active?: boolean }) {
   const updateMemory = useCallback((next: string[]) => { memoryRef.current = next; setMemory(next); saveMemory(next); }, []);
   const [turns, setTurns] = useState<Turn[]>(() => restored?.turns ?? []);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(() => restored?.activeTurnId ?? null);
+  const activeTurnIdRef = useRef<string | null>(null);
+  activeTurnIdRef.current = activeTurnId;
   const [tabs, setTabs] = useState<DocTab[]>(() => restored?.tabs ?? []);
   const [activeTab, setActiveTab] = useState<string | null>(() => restored?.activeTab ?? null);
   const [focus, setFocus] = useState<{ sourceId: string; turnId: string } | null>(null);
@@ -133,9 +139,10 @@ export function Studio({ active = true }: { active?: boolean }) {
       .then((payload: PagePayload | null) => {
         if (!payload) return;
         const id = pageTabId(payload.document_id, payload.page);
-        openTab({ id, kind: "page", page: payload });
         const passage = payload.passages[0];
         const pseudo = newTurn(`review-${Date.now()}`, parameters.get("q") ? `Revisão: ${parameters.get("q")}` : `Revisão de ${lectureLabel(payload.document_id, payload.page)}`);
+        openTab({ id, kind: "page", page: payload }, pseudo.id);
+        setActiveTurnId(pseudo.id);
         if (passage) {
           setFocus({ sourceId: passage.id, turnId: pseudo.id });
           const review: Turn = { ...pseudo, status: "answered", thinking: false, mode: null, chat: true, blocks: [{ text: `Abri ${lectureLabel(payload.document_id, payload.page)} para você revisar. O trecho marcado é o que sustenta a resposta. Pergunte o que quiser sobre ele.`, citation_ids: [passage.id] }], sources: [passage], seen: { [passage.id]: passage } };
@@ -156,11 +163,15 @@ export function Studio({ active = true }: { active?: boolean }) {
     setTurns((list) => list.map((turn) => (turn.id === turnId ? update(turn) : turn)));
   }, []);
 
-  const openTab = useCallback((tab: DocTab) => {
+  /** Abre uma fonte como parte de uma pergunta. A mesma página em perguntas diferentes vira duas abas, uma de cada. */
+  const openTab = useCallback((tab: DocTab, turnId: string) => {
+    const owned = { ...tab, turn: turnId };
     setTabs((list) => {
-      const exists = list.some((item) => item.id === tab.id);
-      const next = exists ? list.map((item) => (item.id === tab.id ? tab : item)) : [...list, tab];
-      return next.slice(-MAX_TABS);
+      const exists = list.some((item) => item.id === tab.id && item.turn === turnId);
+      let next = exists ? list.map((item) => (item.id === tab.id && item.turn === turnId ? owned : item)) : [...list, owned];
+      const mine = next.filter((item) => item.turn === turnId);
+      if (mine.length > MAX_TABS) next = next.filter((item) => item !== mine[0]);
+      return next.slice(-MAX_ALL_TABS);
     });
     setActiveTab(tab.id);
   }, []);
@@ -197,7 +208,7 @@ export function Studio({ active = true }: { active?: boolean }) {
     // uma fonte nova no painel de documentos: o cursor desenha a moldura
     const drawSheet = async (tab: DocTab, label: string) => {
       setDrawTab(tab.id);
-      openTab(tab);
+      openTab(tab, turnId);
       await sleep(40);
       point(`sheet-${tab.id}`, label, "draw");
       await waitForDrawn(`sheet-${tab.id}`);
@@ -292,7 +303,7 @@ export function Studio({ active = true }: { active?: boolean }) {
             evidenceSeen.current = false;
             setFocus({ sourceId: lecture.id, turnId });
             const known = tabsRef.current.some((tab) => tab.id === id);
-            if (known) openTab({ id, kind: "page", page: payload });
+            if (known) openTab({ id, kind: "page", page: payload }, turnId);
             else await drawSheet({ id, kind: "page", page: payload }, "Voltando à fonte");
             if (!alive()) return;
             // o trecho pode ter sido marcado antes de começarmos a esperar
@@ -303,7 +314,7 @@ export function Studio({ active = true }: { active?: boolean }) {
           }
         } else if (web) {
           const node = after.nodes.find((item) => item.kind === "web" && item.results?.some((result) => result.id === web.id)) as Extract<TraceNode, { kind: "web" }> | undefined;
-          if (node?.results) openTab({ id: node.id, kind: "web", query: node.query, provider: node.provider ?? "wikipedia", results: node.results });
+          if (node?.results) openTab({ id: node.id, kind: "web", query: node.query, provider: node.provider ?? "wikipedia", results: node.results }, turnId);
           setFocus({ sourceId: web.id, turnId });
           await sleep(350);
           point(`web-${web.id}`, "Marcando a fonte", "click");
@@ -352,10 +363,11 @@ export function Studio({ active = true }: { active?: boolean }) {
     const abort = new AbortController();
     controller.current = abort;
     const turnId = `t${Date.now()}`;
-    const context = turnsRef.current
-      .filter((turn) => turn.status === "answered" && !turn.id.startsWith("review"))
-      .slice(-8)
-      .map((turn) => ({ question: turn.question.slice(0, 500), answer: turn.blocks.map((block) => block.text).join(" ").slice(0, 700) }));
+    // memória da conversa: as últimas 8 trocas inteiras e, antes delas, só as perguntas, em ordem
+    const asked = turnsRef.current.filter((turn) => !turn.id.startsWith("review"));
+    const recent = asked.filter((turn) => turn.status === "answered").slice(-8);
+    const context = recent.map((turn) => ({ question: turn.question.slice(0, 500), answer: turn.blocks.map((block) => block.text).join(" ").slice(0, 700) }));
+    const history = asked.filter((turn) => !recent.includes(turn)).slice(-40).map((turn) => turn.question.slice(0, 200));
     const fresh = newTurn(turnId, question);
     turnsRef.current = [...turnsRef.current, fresh];
     setTurns(turnsRef.current);
@@ -370,7 +382,7 @@ export function Studio({ active = true }: { active?: boolean }) {
       const response = await fetch("/api/tutor/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, context, memory: memoryRef.current, ai: aiPayload() }),
+        body: JSON.stringify({ question, context, history, memory: memoryRef.current, ai: aiPayload() }),
         signal: abort.signal,
       });
       if (!response.ok || !response.body) {
@@ -456,14 +468,15 @@ export function Studio({ active = true }: { active?: boolean }) {
   }, []);
 
   const openSource = useCallback(async (source: Source, turn: Turn) => {
+    setActiveTurnId(turn.id);
     if (source.kind === "aula") {
       const payload = await pageFor(source, turn);
       if (!payload) return;
-      openTab({ id: pageTabId(payload.document_id, payload.page), kind: "page", page: payload });
+      openTab({ id: pageTabId(payload.document_id, payload.page), kind: "page", page: payload }, turn.id);
       setFocus({ sourceId: source.id, turnId: turn.id });
     } else {
       const node = turn.nodes.find((item) => item.kind === "web" && item.results?.some((result) => result.id === source.id)) as Extract<TraceNode, { kind: "web" }> | undefined;
-      openTab({ id: node?.id ?? `web-${source.id}`, kind: "web", query: node?.query ?? source.title, provider: node?.provider ?? source.provider, results: node?.results ?? [source] });
+      openTab({ id: node?.id ?? `web-${source.id}`, kind: "web", query: node?.query ?? source.title, provider: node?.provider ?? source.provider, results: node?.results ?? [source] }, turn.id);
       setFocus({ sourceId: source.id, turnId: turn.id });
     }
     setCompact(true);
@@ -471,22 +484,30 @@ export function Studio({ active = true }: { active?: boolean }) {
 
   const openNode = useCallback(async (node: TraceNode) => {
     const turn = turnsRef.current.find((item) => item.nodes.some((candidate) => candidate.id === node.id));
+    const owner = turn?.id ?? activeTurnIdRef.current ?? "";
     if (node.kind === "read" && node.payload) {
-      openTab({ id: pageTabId(node.payload.document_id, node.payload.page), kind: "page", page: node.payload });
+      openTab({ id: pageTabId(node.payload.document_id, node.payload.page), kind: "page", page: node.payload }, owner);
       setFocus(null);
     } else if (node.kind === "web" && node.results) {
-      openTab({ id: node.id, kind: "web", query: node.query, provider: node.provider ?? "wikipedia", results: node.results });
+      openTab({ id: node.id, kind: "web", query: node.query, provider: node.provider ?? "wikipedia", results: node.results }, owner);
     } else if (node.kind === "search" && node.hits?.length && turn) {
       void openSource(node.hits[0], turn);
     }
   }, [openTab, openSource]);
 
   const activeTurn = turns.find((turn) => turn.id === activeTurnId) ?? null;
+  const turnTabs = useMemo(() => tabs.filter((tab) => tab.turn === activeTurnId), [tabs, activeTurnId]);
+  const shownTab = turnTabs.some((tab) => tab.id === activeTab) ? activeTab : turnTabs[turnTabs.length - 1]?.id ?? null;
+  const deckEmpty = !activeTurn ? undefined
+    : activeTurn.status === "running" ? "As páginas que o Aster abrir para esta pergunta aparecem aqui."
+    : activeTurn.chat ? "Esta resposta veio direto, sem precisar abrir slides nem sites."
+    : activeTurn.status === "answered" ? "Clique numa citação da resposta para abrir a página aqui."
+    : "Esta pergunta não abriu nenhuma página.";
   const running = turns.some((turn) => turn.status === "running");
   const session = turns.length > 0;
 
   const highlights = useMemo(() => {
-    const tab = tabs.find((item) => item.id === activeTab);
+    const tab = turnTabs.find((item) => item.id === shownTab);
     if (!tab || tab.kind !== "page") return [];
     const onPage = (source: Source): source is LectureSource => source.kind === "aula" && source.document_id === tab.page.document_id && source.page === tab.page.page;
     if (focus) {
@@ -499,7 +520,7 @@ export function Studio({ active = true }: { active?: boolean }) {
     }
     if (activeTurn?.status === "answered") return activeTurn.sources.filter(onPage).map((item) => ({ id: item.id, quote: item.quote }));
     return [];
-  }, [tabs, activeTab, focus, turns, activeTurn]);
+  }, [turnTabs, shownTab, focus, turns, activeTurn]);
 
   const focusWebId = focus && turns.find((turn) => turn.id === focus.turnId)?.seen[focus.sourceId]?.kind === "web" ? focus.sourceId : null;
 
@@ -579,14 +600,15 @@ export function Studio({ active = true }: { active?: boolean }) {
                 </motion.div>
                 <motion.div className="work-doc" initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18, type: "spring", duration: 0.8, bounce: 0.1 }}>
                   <DocumentDeck
-                    tabs={tabs}
-                    activeId={activeTab}
+                    tabs={turnTabs}
+                    activeId={shownTab}
+                    empty={deckEmpty}
                     drawId={stagingId ? drawTab : null}
                     onSelect={(id) => { setActiveTab(id); }}
                     highlights={highlights}
                     focusWebId={focusWebId}
                     scanning={scanning}
-                    onRendered={() => { renderedKey.current = activeTab; renderGate.current?.(); }}
+                    onRendered={() => { renderedKey.current = shownTab; renderGate.current?.(); }}
                     onEvidence={() => { evidenceSeen.current = true; evidenceGate.current?.(); }}
                   />
                 </motion.div>

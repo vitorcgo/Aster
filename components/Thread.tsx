@@ -316,7 +316,11 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
       <AnimatePresence>
         {memoryOpen && (
           <motion.div className="memory-panel" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
-            <p className="memory-title">O que o Aster lembra de você</p>
+            <p className="memory-title">Nesta conversa</p>
+            <p className="memory-empty">{turns.length
+              ? `Ele lembra das ${turns.length} ${turns.length === 1 ? "pergunta" : "perguntas"} desta conversa: as 8 últimas com a resposta inteira e as anteriores pelo assunto. Nova conversa apaga.`
+              : "Ainda não há perguntas nesta conversa."}</p>
+            <p className="memory-title">Sobre você, entre conversas</p>
             {memory.length ? (
               <>
                 <ul>
@@ -327,7 +331,7 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
                 <button type="button" className="link-button" onClick={() => onForget(null)}>Esquecer tudo</button>
               </>
             ) : (
-              <p className="memory-empty">Nada ainda. Conte seu nome, seu curso ou como prefere estudar, e ele guarda para as próximas conversas. Fica só neste navegador.</p>
+              <p className="memory-empty">Nada ainda. Conte seu nome, seu curso ou como prefere estudar (por exemplo, "me chamo Ana e prefiro exemplos práticos") e ele guarda para as próximas conversas. Fica só neste navegador.</p>
             )}
           </motion.div>
         )}
