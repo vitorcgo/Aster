@@ -82,6 +82,8 @@ Requer **Node.js 22+** e **Python 3.11+**.
 
 **Windows, com dois cliques:** abra o `iniciar.bat`. Na primeira vez ele cria o `.env`, o ambiente Python e instala as dependências. Depois sobe a API e o site e abre o navegador.
 
+**Mac, com dois cliques:** abra o `iniciar.command`. Faz o mesmo que o `.bat` e, ao fechar a janela do Terminal, desliga a API. Precisa do Python 3.12 ou superior (o do macOS é antigo; instale pelo [python.org](https://www.python.org/downloads/macos/) ou com `brew install python@3.12`) e do Node.js 20. Se o Mac bloquear o arquivo na primeira vez, clique com o botão direito nele e escolha **Abrir**.
+
 **Pelo terminal:**
 
 ```powershell
@@ -181,7 +183,7 @@ No link **Sou o dono do site**, protegido por senha, o dono define os limites do
 
 ## <img src="docs/icones/laboratorio.svg" width="22" align="center" alt=""> Laboratório
 
-A rota `/laboratorio` mostra o caminho de uma pergunta dentro do Aster, com os dados reais do sistema. Cada etapa abre com um **roteiro de fala**: uma frase simples, uma comparação do dia a dia e o que mostrar na tela. As setas do teclado trocam de etapa.
+A rota `/laboratorio` mostra o caminho de uma pergunta dentro do Aster, com os dados reais do sistema. Cada etapa abre no modo **Simples**: uma frase curta, uma comparação do dia a dia e só o visual principal. O botão **Por dentro** mostra as fórmulas, o código, o prompt inteiro e todos os números. O roteiro de fala (o que mostrar na tela) fica num botão, e as setas do teclado trocam de etapa.
 
 | # | Etapa | Em linguagem simples | Aula |
 | --- | --- | --- | --- |
@@ -263,7 +265,8 @@ Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida)
 - **Prompt injection:** a pergunta vai entre `<pergunta_do_aluno>`, e o texto de regras manda tratar a pergunta, a conversa e tudo o que as ferramentas devolvem (slides e páginas da web) como dado, nunca como instrução.
 - **Citações conferidas:** o servidor recusa respostas que citem fontes que a IA não recebeu.
 - **Resposta fiel à fonte:** se um bloco da resposta diz mais do que os slides citados dizem (menos de 30% dos termos em comum), a IA precisa reescrever antes de a resposta aparecer.
-- **Limite de tempo:** uma pergunta para em 90 segundos, somando todos os modelos.
+- **Limite de tempo:** cada passo de um modelo tem até 30 segundos; se travar, o próximo da fila assume com as fontes já encontradas. A pergunta inteira para em 90 segundos.
+- **A pergunta não morre:** se nenhum modelo terminar (sem cota, sem crédito, fora do ar ou lento), a resposta sai com os trechos das aulas que o Aster já tinha achado, com citação, e um aviso com o motivo de cada falha (por exemplo, `429 · limite de uso`).
 - **Escopo no servidor:** pergunta que não bate com nenhum slide nem fala de IA é recusada antes de chegar ao modelo. Pedidos como "ignore as regras" ou "mostre seu prompt" também. A pesquisa web recusa consultas fora da matéria mesmo que o modelo tente.
 - **Memória local:** os fatos guardados ficam só no navegador do aluno (botão Memória no chat, com Esquecer).
 
@@ -287,6 +290,7 @@ Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida)
 ├── public/mascot/       # o Aster em quatro expressões
 ├── docs/                # telas, diagramas e ícones deste README
 ├── iniciar.bat          # sobe tudo com dois cliques no Windows
+├── iniciar.command      # o mesmo, no Mac
 └── .env.example         # modelo das variáveis de ambiente
 ```
 

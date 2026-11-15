@@ -17,6 +17,7 @@ node_modules/
 /*.pdf
 __pycache__/
 .venv/
+.venv-mac/
 *.tsbuildinfo
 /tmp/
 

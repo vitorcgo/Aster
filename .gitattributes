@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# scripts do Mac e do Linux precisam de fim de linha LF, mesmo vindo de um Windows
+*.command text eol=lf
+*.sh text eol=lf
