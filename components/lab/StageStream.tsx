@@ -11,8 +11,9 @@ const COLORS: Record<string, string> = {
 };
 
 const PYDANTIC = `class AskRequest(BaseModel):
-    question: str = Field(min_length=3, max_length=500)
-    context: list[ConversationTurn] = Field(default_factory=list, max_length=3)`;
+    question: str = Field(min_length=2, max_length=500)
+    context: list[ConversationTurn] = Field(default_factory=list, max_length=8)
+    memory: list[str] = Field(default_factory=list, max_length=12)`;
 
 const ENDPOINT = `@app.post("/api/tutor/runs")
 async def run_tutor(request: AskRequest):
@@ -61,7 +62,7 @@ export function StageStream({ run, onRun, deep = false }: { run: LabRun; onRun: 
         <div className="lab-card">
           <h3>Pydantic valida a pergunta (Aula 7, p. 16)</h3>
           <pre className="code-block">{PYDANTIC}</pre>
-          <p className="lab-note">Pergunta vazia ou com mais de 500 caracteres volta com erro 422 antes de chegar ao modelo.</p>
+          <p className="lab-note">Pergunta vazia ou com mais de 500 caracteres volta com erro 400 e uma mensagem em português, antes de chegar ao modelo.</p>
         </div>
         <div className="lab-card">
           <h3>StreamingResponse com um gerador assíncrono (p. 22)</h3>
