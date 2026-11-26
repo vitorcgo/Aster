@@ -78,20 +78,6 @@ class AgentTest(unittest.TestCase):
             validate_answer(GeneratedAnswer(blocks=[AnswerBlock(text=" ", citation_ids=["ref-1"])]), {"ref-1"})
         validate_answer(GeneratedAnswer(blocks=[AnswerBlock(text="Ok.", citation_ids=["ref-1", "web-1"])]), {"ref-1", "web-1"})
 
-    def test_rescue_shows_only_sources_about_the_question(self):
-        # nenhum modelo terminou: o Aster mostrava "O que é PLN?" para uma pergunta sobre Rust
-        from api.library import Evidence
-        from api.main import Agent, WebSource, rescue_answer
-        agent = Agent()
-        agent.seen["aula-4-p3-s0"] = Evidence("aula-4-p3-s0", "aula-4", "Aula 4", 3, "O que é o Processamento de Linguagem Natural?", "PLN")
-        agent.seen["web-1"] = WebSource("web-1", "Rust para machine learning", "https://example.org/rust", "example.org", "Rust tem bibliotecas de machine learning como burn e tch-rs.", "duckduckgo")
-        with patch("api.main.search", return_value=[]), patch("api.main.search_relaxed", return_value=[]):
-            rescue = rescue_answer(agent, "rust serve para machine learning?", "aviso")
-        self.assertEqual([source["id"] for source in rescue["sources"]], ["web-1"])
-        self.assertTrue(rescue["blocks"][0]["text"].startswith("Fora das aulas"))
-        with patch("api.main.search", return_value=[]), patch("api.main.search_relaxed", return_value=[]):
-            self.assertIsNone(rescue_answer(agent, "qual a capital da mongólia?", "aviso"))
-
     def test_long_answer_is_tidied_instead_of_refused(self):
         # modelos grandes escreviam demais, eram recusados e gastavam todos os passos reescrevendo
         sentence = "O deep learning empilha camadas de neurônios que aprendem representações cada vez mais abstratas. "
@@ -386,7 +372,7 @@ class AgentTest(unittest.TestCase):
 
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
     def test_question_has_a_total_time_limit(self):
-        with patch("api.main.rescue_answer", return_value=None), patch("api.main.AGENT_DEADLINE_SECONDS", 0), patch("api.main.call_model") as model:
+        with patch("api.main.AGENT_DEADLINE_SECONDS", 0), patch("api.main.call_model") as model:
             events = self.ask()
         model.assert_not_called()
         self.assertEqual((events[-1]["type"], events[-1]["data"]["code"]), ("run_failed", "timeout"))
@@ -419,7 +405,7 @@ class AgentTest(unittest.TestCase):
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
     def test_refused_key_moves_to_next_model_without_leaking(self):
         rejected = genai_errors.APIError(401, {"error": {"message": "secret detail"}})
-        with patch("api.main.rescue_answer", return_value=None), patch("api.main.call_model", side_effect=rejected) as model:
+        with patch("api.main.call_model", side_effect=rejected) as model:
             events = self.ask()
         self.assertEqual(model.call_count, 2)
         self.assertEqual(events[-1]["data"]["code"], "invalid_key")
@@ -454,7 +440,7 @@ class AgentTest(unittest.TestCase):
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
     def test_both_models_failing_return_safe_error(self):
         unavailable = genai_errors.APIError(503, {"error": {"message": "private server detail"}})
-        with patch("api.main.rescue_answer", return_value=None), patch("api.main.call_model", side_effect=[unavailable, unavailable]) as model:
+        with patch("api.main.call_model", side_effect=[unavailable, unavailable]) as model:
             events = self.ask()
         self.assertEqual(model.call_count, 2)
         self.assertEqual(events[-1]["type"], "run_failed")
@@ -465,7 +451,7 @@ class AgentTest(unittest.TestCase):
     def test_failure_says_the_error_code_of_each_model(self):
         limited = genai_errors.APIError(429, {"error": {"message": "quota"}})
         broke = genai_errors.APIError(402, {"error": {"message": "billing"}})
-        with patch("api.main.rescue_answer", return_value=None), patch("api.main.call_model", side_effect=[limited, broke]):
+        with patch("api.main.call_model", side_effect=[limited, broke]):
             events = self.ask()
         fallback = next(event for event in events if event["type"] == "model_fallback")
         self.assertIn("429 · limite de uso", fallback["data"]["message"])
@@ -495,27 +481,26 @@ class AgentTest(unittest.TestCase):
         self.assertIn("tempo esgotado", fallback["data"]["message"])
 
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
-    def test_when_every_model_fails_the_student_still_gets_the_passages_found(self):
-        # o primeiro modelo achou trechos e depois a fila inteira caiu: a resposta sai com esses trechos e o motivo
+    def test_when_every_model_fails_the_student_sees_the_error_not_loose_passages(self):
+        # o primeiro modelo achou trechos e depois a fila inteira caiu: aparece o erro com o motivo de cada modelo,
+        # e não trechos soltos que pareciam uma resposta pela metade
         unavailable = genai_errors.APIError(503, {"error": {"message": "private server detail"}})
         script = [turn(("buscar_nas_aulas", {"consulta": "embeddings"})), unavailable, unavailable]
         with patch("api.main.call_model", side_effect=script):
             events = self.ask()
         last = events[-1]
-        self.assertEqual((last["type"], last["data"]["mode"]), ("answer_ready", "local"))
-        found = next(event for event in events if event["type"] == "search_results")["data"]["hits"]
-        self.assertTrue({source["id"] for source in last["data"]["sources"]} <= {hit["id"] for hit in found})
-        self.assertTrue(all(block["citation_ids"] for block in last["data"]["blocks"]))
-        self.assertIn("503 · provedor fora do ar", last["data"]["notice"])
-        self.assertNotIn("private server detail", last["data"]["notice"])
+        self.assertEqual(last["type"], "run_failed")
+        self.assertNotIn("answer_ready", [event["type"] for event in events])
+        self.assertIn("503 · provedor fora do ar", last["data"]["message"])
+        self.assertNotIn("private server detail", last["data"]["message"])
 
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
-    def test_out_of_time_without_research_still_answers_from_a_quick_search(self):
+    def test_out_of_time_shows_a_clear_error_not_half_an_answer(self):
         with patch("api.main.AGENT_DEADLINE_SECONDS", 0), patch("api.main.call_model") as model:
             events = self.ask()
         model.assert_not_called()
-        self.assertEqual((events[-1]["type"], events[-1]["data"]["mode"]), ("answer_ready", "local"))
-        self.assertIn("não terminou a tempo", events[-1]["data"]["notice"])
+        self.assertEqual((events[-1]["type"], events[-1]["data"]["code"]), ("run_failed", "timeout"))
+        self.assertNotIn("answer_ready", [event["type"] for event in events])
 
     def test_greeting_is_answered_without_research(self):
         with patch("api.main.call_model", side_effect=[turn(("conversar", {"texto": "Oi! Eu sou o Aster."}))]):

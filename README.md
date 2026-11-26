@@ -272,7 +272,7 @@ Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida)
 - **Citações conferidas:** o servidor recusa respostas que citem fontes que a IA não recebeu.
 - **Resposta fiel à fonte:** se um bloco da resposta diz mais do que os slides citados dizem (menos de 30% dos termos em comum), a IA precisa reescrever antes de a resposta aparecer.
 - **Limite de tempo:** cada passo de um modelo tem até 20 segundos quando há reserva na fila; se travar, o próximo assume com as fontes já encontradas. Conexão derrubada no meio ganha uma segunda tentativa, e o motivo real de cada falha aparece no terminal da API. A pergunta inteira para em 90 segundos.
-- **A pergunta não morre:** se nenhum modelo terminar (sem cota, sem crédito, fora do ar ou lento), a resposta sai com os trechos das aulas que o Aster já tinha achado, com citação, e um aviso com o motivo de cada falha (por exemplo, `429 · limite de uso`).
+- **Erro claro em vez de meia resposta:** se nenhum modelo terminar (sem cota, sem crédito, fora do ar ou lento), o Aster mostra o erro com o motivo de cada modelo tentado (por exemplo, `429 · limite de uso`), em vez de trechos soltos que pareceriam uma resposta pela metade.
 - **Escopo:** com IA disponível, quem decide o que é da matéria é o modelo, que entende situação, gíria e erro de digitação e recusa com gentileza o que for de fora. Sem IA, pergunta que não bate com nenhum slide nem fala de IA é recusada no servidor. Pedidos como "ignore as regras" ou "mostre seu prompt" são barrados no servidor sempre, com ou sem IA. A pesquisa web recusa consultas fora da matéria mesmo que o modelo tente.
 - **Memória local:** os fatos guardados ficam só no navegador do aluno (botão Memória no chat, com Esquecer).
 

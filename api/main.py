@@ -853,51 +853,6 @@ def carried_sources(agent: "Agent", first: bool = False) -> str:
     return "\n\n<fontes_ja_encontradas>\nOutro modelo começou esta pesquisa e falhou. Estas fontes já foram encontradas e podem ser citadas pelos ids; pesquise de novo só se faltar algo.\n" + "\n".join(lines) + "\n</fontes_ja_encontradas>"
 
 
-def rescue_answer(agent: "Agent", question: str, notice: str) -> dict | None:
-    """Rede de segurança: nenhum modelo terminou, mas a pesquisa não pode morrer à toa. Entrega os trechos das aulas
-    que o Aster já tinha achado (ou, se ainda não achou nada, os de uma busca rápida), com citação e um aviso claro."""
-    # Só entra o que tem a ver com a pergunta. Antes vinham os primeiros trechos vistos, e uma pergunta sobre Rust
-    # terminava com "O que é PLN?". Os resultados da web também contam: às vezes são eles que respondem.
-    asked = terms(question)
-    need = 1 if len(asked) <= 2 else 2
-
-    def relevance(item: Evidence | WebSource) -> int:
-        text = f"{item.heading} {item.quote}" if isinstance(item, Evidence) else f"{item.title} {item.snippet}"
-        return len(asked & terms(text))
-
-    seen = [item for item in agent.seen.values() if isinstance(item, (Evidence, WebSource))]
-    found = sorted((item for item in seen if relevance(item) >= need), key=relevance, reverse=True)
-    if not any(isinstance(item, Evidence) for item in found):
-        found += [item for item in (search(question) or search_relaxed(question)) if relevance(item) >= need]
-    picked: list[Evidence | WebSource] = []
-    pages: set[tuple[str, int]] = set()
-    webs = 0
-    for item in found:
-        # um trecho por página e uma página da web, até três: o suficiente para responder sem virar um despejo de texto
-        if isinstance(item, WebSource):
-            if webs or not item.snippet.strip():
-                continue
-            webs += 1
-        elif (item.document_id, item.page) in pages:
-            continue
-        else:
-            pages.add((item.document_id, item.page))
-        picked.append(item)
-        if len(picked) == 3:
-            break
-    if not picked:
-        return None
-    answer = GeneratedAnswer(blocks=[
-        AnswerBlock(text=item.quote if isinstance(item, Evidence) else clip_text(f"Fora das aulas ({item.domain}): {item.snippet.strip()}", 600), citation_ids=[item.id])
-        for item in picked
-    ])
-    try:
-        validate_answer(answer, picked)
-    except InvalidAnswerError:
-        return None
-    return {"blocks": [block.model_dump() for block in answer.blocks], "sources": [item.public() for item in picked], "mode": "local", "model": None, "used_fallback": True, "steps": 0, "notice": notice}
-
-
 def failure_summary(attempts: list[tuple[str, str]], message: str) -> str:
     """A mensagem final diz o que aconteceu com cada modelo tentado: "gemini-3.8-flash: 429 · limite de uso"."""
     if not attempts:
@@ -958,10 +913,6 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
             remaining = deadline - time.monotonic()
             if remaining <= 1:
                 message = failure_summary(attempts, f"A pesquisa passou de {limit_seconds:.0f} s e foi interrompida.")
-                rescue = rescue_answer(agent, request.question, f"A IA não terminou a tempo. {message} Estas são as fontes que o Aster já tinha achado sobre a pergunta.")
-                if rescue:
-                    yield emit("answer_ready", rescue)
-                    return
                 yield emit("run_failed", {"code": "timeout", "message": message + " Tente uma pergunta mais direta."})
                 return
             last_model = model_index + 1 >= len(models)
@@ -973,10 +924,6 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
                 if last_model or deadline - time.monotonic() < 10:
                     attempts.append((model, f"tempo esgotado, {budget:.0f} s sem resposta"))
                     message = failure_summary(attempts, "Nenhum modelo respondeu a tempo.")
-                    rescue = rescue_answer(agent, request.question, f"{message} Estas são as fontes que o Aster já tinha achado sobre a pergunta.")
-                    if rescue:
-                        yield emit("answer_ready", rescue)
-                        return
                     yield emit("run_failed", {"code": "timeout", "message": message})
                     return
                 # lento demais: este modelo fica de fora por alguns minutos e o próximo da fila assume
@@ -1061,16 +1008,12 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
                 break
             session.add_results(results)
         else:
-            failure = GenerationFailure("too_many_steps", "O Aster não conseguiu concluir a pesquisa a tempo. Tente uma pergunta mais direta.", True)
+            failure = GenerationFailure("too_many_steps", "O modelo não conseguiu terminar a resposta. Tente de novo ou use um modelo mais rápido.", True)
         if failure:
             attempts.append((model, failure.reason or failure.code))
         if failure and (not failure.try_fallback or model_index + 1 >= len(models)):
             message = failure_summary(attempts, failure.message)
-            # a chave recusada ou sem crédito não é falha de pesquisa: mesmo assim o aluno sai com os trechos achados
-            rescue = rescue_answer(agent, request.question, f"A IA não conseguiu terminar. {message} Estas são as fontes que o Aster já tinha achado sobre a pergunta.")
-            if rescue:
-                yield emit("answer_ready", rescue)
-                return
+            # sem resposta completa, o aluno vê o erro com o motivo de cada modelo, e não trechos soltos que pareciam resposta
             yield emit("run_failed", {"code": failure.code, "message": message})
             return
 
