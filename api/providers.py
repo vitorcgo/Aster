@@ -5,6 +5,7 @@ do modelo, add_results() devolve os resultados, nudge() acrescenta uma instruç�
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
@@ -99,15 +100,30 @@ class ProviderHTTPError(Exception):
         self.code = code
 
 
+def _is_timeout(error: BaseException) -> bool:
+    reason = getattr(error, "reason", error)
+    return isinstance(reason, TimeoutError) or "timed out" in str(reason).lower()
+
+
 def _post_json(url: str, body: dict, key: str, timeout: float) -> dict:
-    request = Request(url, data=json.dumps(body).encode("utf-8"), method="POST", headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "Accept": "application/json"})
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
-        raise ProviderHTTPError(error.code) from None
-    except URLError as error:
-        raise ConnectionError(str(error.reason)) from None
+    data = json.dumps(body).encode("utf-8")
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "Accept": "application/json"}
+    for attempt in (1, 2):
+        try:
+            with urlopen(Request(url, data=data, method="POST", headers=headers), timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            raise ProviderHTTPError(error.code) from None
+        except (URLError, ConnectionError, http.client.HTTPException, TimeoutError) as error:
+            # demora não se repete (o tempo da pergunta é curto); conexão derrubada no meio, comum no plano
+            # gratuito da NVIDIA, ganha uma segunda tentativa antes de o modelo contar como falho
+            if _is_timeout(error):
+                raise TimeoutError("o provedor não respondeu a tempo") from None
+            if attempt == 2:
+                reason = getattr(error, "reason", None) or type(error).__name__
+                raise ConnectionError(str(reason)[:160]) from None
+            time.sleep(0.6)
+    raise ConnectionError("sem resposta")
 
 
 def _get_json(url: str, key: str, timeout: float = 15) -> dict:

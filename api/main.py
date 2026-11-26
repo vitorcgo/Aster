@@ -245,8 +245,11 @@ def classify_generation_error(error: Exception) -> GenerationFailure:
         if status in (400, 416, 422):
             return GenerationFailure("invalid_request", "O modelo rejeitou a configuração da consulta. Ele pode não aceitar ferramentas.", True, f"{status} · pedido recusado pelo modelo")
         return GenerationFailure("model_error", "Não foi possível consultar o modelo. Tente novamente.", True, f"{status} · erro do provedor")
-    if isinstance(error, (TimeoutError, ConnectionError, OSError)):
-        return GenerationFailure("connection_error", "A conexão com o provedor falhou. Tente novamente.", True, "sem conexão com o provedor")
+    # TimeoutError também é OSError: precisa vir antes, senão demora aparecia como "sem conexão"
+    if isinstance(error, TimeoutError):
+        return GenerationFailure("timeout", "O provedor demorou demais para responder. Tente um modelo mais rápido.", True, "tempo esgotado no provedor")
+    if isinstance(error, (ConnectionError, OSError)):
+        return GenerationFailure("connection_error", "A conexão com o provedor caiu. Tente novamente.", True, "o provedor derrubou a conexão")
     return GenerationFailure("model_error", "Não foi possível concluir a consulta ao modelo. Tente novamente.", True, "erro inesperado do modelo")
 
 
@@ -884,7 +887,7 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
     # Desempenho: o primeiro passo de quase toda pergunta era o modelo pedir buscar_nas_aulas com a própria pergunta,
     # uma ida e volta inteira ao modelo (5 a 30 s nos lentos). O servidor faz essa busca já, e o modelo começa com ela.
     if models:
-        first_search = ToolCall("pre-1", "buscar_nas_aulas", {"consulta": request.question})
+        first_search = ToolCall("pre-1", "buscar_nas_aulas", {"consulta": fix_typos(request.question)})
         payload, events = await asyncio.to_thread(agent.run_tool, first_search)
         if payload.get("trechos"):
             yield emit("tool_call", {"call_id": first_search.id, "tool": first_search.name, "args": first_search.arguments})
@@ -936,6 +939,8 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
                 break
             except Exception as error:
                 failure = classify_generation_error(error)
+                # o motivo real fica no terminal da API (sem a chave: as mensagens dos provedores não a trazem)
+                print(f"[aster] {model} falhou no passo {step + 1}: {type(error).__name__}: {str(error)[:160]}", flush=True)
                 # modelo sem cota, fora do ar ou lento demais: pula nas próximas perguntas
                 if failure.try_fallback and failure.code != "invalid_answer":
                     # sem cota costuma durar horas; os outros erros, minutos
@@ -1067,6 +1072,43 @@ AI_VOCABULARY = {
 }
 
 
+_VOCABULARY: tuple[frozenset[str], dict[int, list[str]]] | None = None
+
+
+def _vocabulary() -> tuple[frozenset[str], dict[int, list[str]]]:
+    """Palavras reais das aulas e os termos de IA, agrupadas por tamanho, para corrigir erros de digitação."""
+    global _VOCABULARY
+    if _VOCABULARY is None:
+        words: set[str] = set(AI_VOCABULARY)
+        for page in library().pages.values():
+            normalized = unicodedata.normalize("NFKD", page.text.lower())
+            words.update(re.findall(r"[a-z]{5,}", "".join(ch for ch in normalized if not unicodedata.combining(ch))))
+        by_length: dict[int, list[str]] = {}
+        for word in words:
+            by_length.setdefault(len(word), []).append(word)
+        _VOCABULARY = (frozenset(words), by_length)
+    return _VOCABULARY
+
+
+def fix_typos(text: str) -> str:
+    """Troca palavras digitadas errado pela palavra das aulas mais parecida: "overflitting" vira "overfitting".
+    Só mexe em palavras de 5+ letras que não existem no material e têm uma vizinha muito parecida (85%)."""
+    import difflib
+
+    known, by_length = _vocabulary()
+
+    def fix(match: re.Match) -> str:
+        word = match.group(0)
+        plain = "".join(ch for ch in unicodedata.normalize("NFKD", word.lower()) if not unicodedata.combining(ch))
+        if len(plain) < 5 or plain in known or plain in STOPWORDS:
+            return word
+        candidates = [item for size in range(len(plain) - 2, len(plain) + 3) for item in by_length.get(size, ())]
+        close = difflib.get_close_matches(plain, candidates, n=1, cutoff=0.85)
+        return close[0] if close else word
+
+    return re.sub(r"[A-Za-zÀ-ÿ]+", fix, text)
+
+
 def mentions_ai(text: str) -> bool:
     normalized = unicodedata.normalize("NFKD", text.lower())
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
@@ -1082,6 +1124,10 @@ FOLLOW_UP = re.compile(
 def in_scope(request: "AskRequest") -> bool:
     """A pergunta é da matéria? Vale se bater com algum slide, se falar de IA, ou se continuar uma conversa da matéria."""
     if mentions_ai(request.question) or search(request.question, limit=1) or search_relaxed(request.question, limit=1):
+        return True
+    # aluno digita errado ("overflitting acontece porque?"): confere de novo com as palavras corrigidas
+    fixed = fix_typos(request.question)
+    if fixed != request.question and (mentions_ai(fixed) or search(fixed, limit=1) or search_relaxed(fixed, limit=1)):
         return True
     # "explica melhor", "e o outro?": continuação curta da conversa, cujo assunto já foi conferido.
     # Só vale com cara de continuação: "me fala a receita de bolo" depois de uma dúvida da matéria não passa.
@@ -1136,7 +1182,7 @@ async def run_local(request: AskRequest, emit) -> AsyncIterator[str]:
     """Sem chave: o mesmo caminho de ferramentas, executado por regra fixa e sem IA."""
     agent = Agent()
     yield emit("agent_thinking", {"step": 1, "model": None})
-    search_call = ToolCall("local-1", "buscar_nas_aulas", {"consulta": request.question})
+    search_call = ToolCall("local-1", "buscar_nas_aulas", {"consulta": fix_typos(request.question)})
     yield emit("tool_call", {"call_id": search_call.id, "tool": search_call.name, "args": search_call.arguments})
     payload, events = await asyncio.to_thread(agent.run_tool, search_call)
     for kind, data in events:

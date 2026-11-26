@@ -178,6 +178,16 @@ class AgentTest(unittest.TestCase):
 
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_typos_stay_in_scope_and_off_topic_does_not(self):
+        # "overflitting acontece porque?" era recusado como fora da matéria
+        from api.main import AskRequest, fix_typos, in_scope
+        self.assertIn("overfitting", fix_typos("overflitting acontece porque?"))
+        for question in ("overflitting acontece porque?", "o que é embedings?", "explica a tokenizasao"):
+            self.assertTrue(in_scope(AskRequest(question=question)), question)
+        for question in ("me passa uma receita de bolo", "qual a capital da franca", "quem ganhou o jogo do flamengo ontem"):
+            self.assertFalse(in_scope(AskRequest(question=question)), question)
+
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
     def test_first_search_runs_before_the_model_and_saves_a_step(self):
         # o servidor busca a pergunta antes do 1º passo; o modelo já pode responder citando esses trechos
         found = search("O que são embeddings?")

@@ -71,7 +71,12 @@ STOPWORDS = {"qual", "quais", "como", "para", "uma", "uns", "umas", "que", "dos"
              "algum", "alguma", "muito", "bem", "ter", "ver", "dizer", "diz", "usar", "usa", "dar", "ficar", "fica",
              # conectivos e pronomes que entram em perguntas longas, em forma de situação
              "mas", "ante", "antes", "depois", "los", "las", "ainda", "desde", "dia", "tudo", "quase", "acontece", "acontecendo",
-             "estao", "cada", "seu", "sua", "seus", "suas", "ele", "ela", "eles", "elas", "num", "numa", "aos", "pra", "sem"}
+             "estao", "cada", "seu", "sua", "seus", "suas", "ele", "ela", "eles", "elas", "num", "numa", "aos", "pra", "sem",
+             # enchimento de pedido ("eu quero saber como..."): casava com slides de exemplo que começam igual
+             "quero", "queria", "gostaria", "saber", "sei", "entender", "entendo", "aprender", "preciso", "ajuda", "ajude", "duvida"}
+
+# formas curtas que o aluno usa para o termo do slide ("front" para "frontend")
+ALIASES = {"front": "fronten", "back": "backen"}
 
 # Um trecho só é candidato se cobrir metade dos termos da pergunta (ou 3 termos, em perguntas longas).
 # Medido nas 26 perguntas de avaliação: recall@1 subiu de 58% para 65%, e perguntas fora da matéria
@@ -98,7 +103,8 @@ def stem(word: str) -> str:
 def terms(value: str) -> set[str]:
     normalized = unicodedata.normalize("NFKD", value.translate(GLYPH_FIXES).lower())
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
-    return {stem(word) for word in re.findall(r"[a-z0-9]{3,}", normalized) if word not in STOPWORDS}
+    found = {stem(word) for word in re.findall(r"[a-z0-9]{3,}", normalized) if word not in STOPWORDS}
+    return {ALIASES.get(term, term) for term in found}
 
 
 def material_paths() -> dict[str, Path]:
