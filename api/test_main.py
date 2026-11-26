@@ -78,6 +78,17 @@ class AgentTest(unittest.TestCase):
             validate_answer(GeneratedAnswer(blocks=[AnswerBlock(text=" ", citation_ids=["ref-1"])]), {"ref-1"})
         validate_answer(GeneratedAnswer(blocks=[AnswerBlock(text="Ok.", citation_ids=["ref-1", "web-1"])]), {"ref-1", "web-1"})
 
+    def test_answer_is_read_in_the_formats_models_actually_send(self):
+        # modelos no formato OpenAI mandavam a lista como texto JSON ou com nomes em inglês, e a resposta era recusada
+        from api.main import read_answer
+        for arguments in ({"blocos": [{"texto": "A", "citacoes": ["x"]}]}, {"blocos": json.dumps([{"texto": "A", "citacoes": ["x"]}])},
+                          {"blocks": [{"text": "A", "citations": ["x"]}]}, {"blocos": [{"texto": "A", "citacoes": "x"}]}, {"texto": "A", "citacoes": ["x"]}):
+            blocks = read_answer(arguments).blocks
+            self.assertEqual([(block.text, block.citation_ids) for block in blocks], [("A", ["x"])], arguments)
+        with self.assertRaises(InvalidAnswerError) as caught:
+            validate_answer(read_answer({}), {"x"})
+        self.assertIn("vazia ou fora do formato", str(caught.exception))
+
     def test_long_answer_is_tidied_instead_of_refused(self):
         # modelos grandes escreviam demais, eram recusados e gastavam todos os passos reescrevendo
         sentence = "O deep learning empilha camadas de neurônios que aprendem representações cada vez mais abstratas. "

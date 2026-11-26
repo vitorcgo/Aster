@@ -592,6 +592,41 @@ def clip_text(text: str, limit: int) -> str:
     return head[: head.rfind(" ")].rstrip(" ,;:") + "…" if " " in head else head
 
 
+def read_answer(arguments: dict) -> GeneratedAnswer:
+    """Lê a chamada de responder do jeito que o modelo mandar. Modelos no formato OpenAI (NVIDIA, por exemplo)
+    às vezes mandam a lista de blocos como texto JSON, usam nomes em inglês (blocks, text, citations) ou juntam
+    as citações numa string ("a, b"); antes isso virava zero blocos e a resposta era recusada."""
+
+    def as_list(value: Any) -> list:
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                return [part.strip() for part in re.split(r"[,;\s]+", value) if part.strip()]
+        if isinstance(value, dict):
+            return [value]
+        return value if isinstance(value, list) else []
+
+    def pick(item: dict, *names: str) -> Any:
+        return next((item[name] for name in names if item.get(name) not in (None, "", [])), None)
+
+    raw = pick(arguments, "blocos", "blocks", "resposta", "answer")
+    blocks = as_list(raw) if raw is not None else []
+    if raw is not None and isinstance(raw, str) and not any(isinstance(block, dict) for block in blocks):
+        # veio só o texto da resposta, sem a lista: vira um bloco com as citações de fora
+        blocks = [{"texto": raw, "citacoes": pick(arguments, "citacoes", "citations", "citation_ids", "fontes") or []}]
+    if not blocks and pick(arguments, "texto", "text"):
+        blocks = [arguments]
+    parsed = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        text = str(pick(block, "texto", "text", "conteudo", "content") or "").strip()
+        cites = [str(item).strip() for item in as_list(pick(block, "citacoes", "citations", "citation_ids", "fontes", "ids") or []) if str(item).strip()]
+        parsed.append(AnswerBlock(text=text, citation_ids=cites))
+    return GeneratedAnswer(blocks=parsed)
+
+
 def tidy_answer(answer: GeneratedAnswer, allowed_ids: set[str]) -> GeneratedAnswer:
     """Ajusta o formato em vez de recusar: modelos grandes costumam escrever demais e, recusados, gastavam
     todos os passos reescrevendo. Junta blocos a mais, tira citações repetidas ou que não vieram das
@@ -620,6 +655,9 @@ def tidy_answer(answer: GeneratedAnswer, allowed_ids: set[str]) -> GeneratedAnsw
 
 def validate_answer(answer: GeneratedAnswer, allowed_ids: set[str] | list[Evidence]) -> None:
     allowed = {item.id for item in allowed_ids} if isinstance(allowed_ids, list) else set(allowed_ids)
+    if not answer.blocks:
+        # o aviso volta para o modelo: diz o formato certo em vez de falar de tamanho
+        raise InvalidAnswerError('A resposta veio vazia ou fora do formato. Chame responder com {"blocos": [{"texto": "...", "citacoes": ["id"]}]}.')
     if not 1 <= len(answer.blocks) <= 3 or sum(len(block.text) for block in answer.blocks) > 1800:
         raise InvalidAnswerError("A resposta precisa ter de 1 a 3 blocos e no máximo 1800 caracteres.")
     for block in answer.blocks:
@@ -870,7 +908,9 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
     agent = Agent()
     # Desempenho: o primeiro passo de quase toda pergunta era o modelo pedir buscar_nas_aulas com a própria pergunta,
     # uma ida e volta inteira ao modelo (5 a 30 s nos lentos). O servidor faz essa busca já, e o modelo começa com ela.
-    if models:
+    # Só quando a busca firme acha trechos: numa continuação ("fala mais do que você disse antes") a busca relaxada
+    # achava slides sem relação, que apareciam na tela e confundiam o modelo; aí quem busca é o modelo, com os termos certos.
+    if models and search(fix_typos(request.question), limit=1):
         first_search = ToolCall("pre-1", "buscar_nas_aulas", {"consulta": fix_typos(request.question)})
         payload, events = await asyncio.to_thread(agent.run_tool, first_search)
         if payload.get("trechos"):
@@ -950,9 +990,7 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
                     yield emit("tool_call", {"call_id": call.id, "tool": call.name, "args": {key: value for key, value in call.arguments.items() if key != "blocos"}})
                 if call.name == "responder":
                     try:
-                        raw_blocks = call.arguments.get("blocos") or []
-                        answer = GeneratedAnswer(blocks=[AnswerBlock(text=str(block.get("texto", "")).strip(), citation_ids=[str(item) for item in block.get("citacoes", [])]) for block in raw_blocks if isinstance(block, dict)])
-                        answer = tidy_answer(answer, set(agent.seen))
+                        answer = tidy_answer(read_answer(call.arguments), set(agent.seen))
                         validate_answer(answer, set(agent.seen))
                         weak = [] if agent.grounding_checked else unsupported_blocks(answer, {**agent.seen, "__pages__": agent.pages_read})
                         if weak:

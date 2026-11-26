@@ -273,7 +273,9 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
       if (answer && !compact) {
         for (const link of citedFrom) {
           const from = box(link.from);
-          if (!from) continue;
+          // só liga blocos da mesma fileira: de uma fileira para outra a linha atravessava a trilha inteira;
+          // as páginas citadas continuam acesas (as não usadas apagam), então a ligação segue visível
+          if (!from || Math.abs(from.y - answer.y) > 12) continue;
           const x1 = from.x + from.w / 2;
           const y1 = from.y + from.h;
           const x2 = answer.x + answer.w / 2;
