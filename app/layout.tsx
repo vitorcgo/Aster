@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, IBM_Plex_Mono } from "next/font/google";
 import { StudioHost } from "@/components/StudioHost";
+import { MotionProvider } from "@/components/MotionProvider";
 import "./globals.css";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" });
@@ -19,8 +20,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="pt-BR" className={`${geist.variable} ${plexMono.variable}`} suppressHydrationWarning>
       <body suppressHydrationWarning>
-        <StudioHost />
-        {children}
+        <MotionProvider>
+          <StudioHost />
+          {children}
+        </MotionProvider>
       </body>
     </html>
   );

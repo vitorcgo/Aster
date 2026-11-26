@@ -1583,3 +1583,12 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 /* a IA não terminou: a resposta veio dos trechos já achados, e o aviso diz por quê */
 .answer-notice { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; padding: 10px 12px; border-radius: 12px; background: var(--roof-soft); border: 1px solid var(--roof-line); color: var(--roof-light); font-size: 14px; line-height: 1.45; }
 .answer-notice svg { flex: none; margin-top: 2px; }
+
+/* ------------------------------------------------------------------ tela de erro (app/error.tsx) */
+.error-screen {
+  position: relative; z-index: 2; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center; background: var(--sky-700);
+}
+.error-screen h1 { font-size: clamp(26px, 4vw, 38px); font-weight: 700; letter-spacing: -0.02em; }
+.error-screen p { max-width: 460px; color: var(--on-sky-2); }
+.error-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 8px; }
