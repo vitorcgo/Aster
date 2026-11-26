@@ -163,12 +163,17 @@ A busca é medida em 26 perguntas com a página certa conferida (`api/eval_set.p
 
 | | Antes | Agora |
 | --- | --- | --- |
-| Página certa em 1º lugar | 65% | **81%** |
-| Entre as 3 primeiras | 65% | **88%** |
-| Entre as 6 que o agente lê | 92% | **96%** |
-| MRR | 0,71 | **0,86** |
+| Página certa em 1º lugar | 65% | **85%** |
+| Entre as 3 primeiras | 65% | **96%** |
+| Entre as 6 que o agente lê | 92% | **100%** |
+| MRR | 0,71 | **0,91** |
 
-O ganho aparece nos dois grupos de perguntas (simulados e conceitos do sistema). Os erros que sobram são perguntas em forma de situação, em que o aluno descreve o problema sem usar o termo do slide. É o limite da busca por palavras, e a etapa de embeddings do Laboratório mostra o caminho para resolver.
+O ganho aparece nos dois grupos de perguntas (simulados e conceitos do sistema).
+
+**Perguntas em forma de situação.** O aluno muitas vezes descreve o problema sem o termo do slide: "meu modelo acerta no treino e erra em dados novos" é overfitting, mas não diz "overfitting". Duas camadas cuidam disso:
+
+1. **Mapa de conceitos** (`api/concepts.py`): um tesauro da matéria liga a situação ao termo do slide, por pistas ("acerta no treino e erra") e pelo vocabulário do assunto (treino, decorar, péssimo, produção...). Funciona sem IA, na busca inicial e no modo sem chave. Medido em 50 perguntas de situação (`api/eval_situacoes.py`): página certa em 1º lugar de **18% para 100%**. Em perguntas novas, escritas depois e com outra redação, a busca sozinha acerta perto de 40%: palavra não substitui entender o sentido.
+2. **O modelo identifica o conceito**: o texto de regras manda o agente reconhecer qual conceito a situação descreve e buscar pelo nome técnico. Buscando pelo termo técnico, a página certa vem entre as 3 primeiras em **95%** dessas perguntas novas. Com uma chave de IA, é esta camada que garante a resposta.
 
 ## <img src="docs/icones/modelos.svg" width="22" align="center" alt=""> Modelos e chaves
 

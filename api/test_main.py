@@ -188,6 +188,18 @@ class AgentTest(unittest.TestCase):
             self.assertFalse(in_scope(AskRequest(question=question)), question)
 
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_situations_without_the_slide_term_find_the_concept(self):
+        # "meu modelo acerta no treino e erra em dados novos" é overfitting sem dizer "overfitting"
+        from api.eval_situacoes import SITUATIONS
+        from api.main import AskRequest, fix_typos, in_scope
+        top3 = 0
+        for item in SITUATIONS:
+            self.assertTrue(in_scope(AskRequest(question=item["q"])), item["q"])
+            pages = list(dict.fromkeys((hit.document_id, hit.page) for hit in search(fix_typos(item["q"]), limit=12)))
+            top3 += any(page in {tuple(p) for p in item["pages"]} for page in pages[:3])
+        self.assertGreaterEqual(top3 / len(SITUATIONS), 0.9)
+
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
     def test_first_search_runs_before_the_model_and_saves_a_step(self):
         # o servidor busca a pergunta antes do 1º passo; o modelo já pode responder citando esses trechos
         found = search("O que são embeddings?")
