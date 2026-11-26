@@ -163,17 +163,14 @@ A busca é medida em 26 perguntas com a página certa conferida (`api/eval_set.p
 
 | | Antes | Agora |
 | --- | --- | --- |
-| Página certa em 1º lugar | 65% | **85%** |
-| Entre as 3 primeiras | 65% | **96%** |
-| Entre as 6 que o agente lê | 92% | **100%** |
-| MRR | 0,71 | **0,91** |
+| Página certa em 1º lugar | 65% | **81%** |
+| Entre as 3 primeiras | 65% | **88%** |
+| Entre as 6 que o agente lê | 92% | **96%** |
+| MRR | 0,71 | **0,86** |
 
 O ganho aparece nos dois grupos de perguntas (simulados e conceitos do sistema).
 
-**Perguntas em forma de situação.** O aluno muitas vezes descreve o problema sem o termo do slide: "meu modelo acerta no treino e erra em dados novos" é overfitting, mas não diz "overfitting". Duas camadas cuidam disso:
-
-1. **Mapa de conceitos** (`api/concepts.py`): um tesauro da matéria liga a situação ao termo do slide, por pistas ("acerta no treino e erra") e pelo vocabulário do assunto (treino, decorar, péssimo, produção...). Funciona sem IA, na busca inicial e no modo sem chave. Medido em 50 perguntas de situação (`api/eval_situacoes.py`): página certa em 1º lugar de **18% para 100%**. Em perguntas novas, escritas depois e com outra redação, a busca sozinha acerta perto de 40%: palavra não substitui entender o sentido.
-2. **O modelo identifica o conceito**: o texto de regras manda o agente reconhecer qual conceito a situação descreve e buscar pelo nome técnico. Buscando pelo termo técnico, a página certa vem entre as 3 primeiras em **95%** dessas perguntas novas. Com uma chave de IA, é esta camada que garante a resposta.
+**Perguntas em forma de situação.** O aluno muitas vezes descreve o problema sem o termo do slide: "meu modelo acerta no treino e erra em dados novos" é overfitting, mas não diz "overfitting". Busca por palavras não liga as duas coisas; quem liga é o modelo. O texto de regras manda o agente reconhecer qual conceito a situação descreve e buscar pelo nome técnico, e a busca inicial avisa quando os trechos não tratam da situação. Buscando pelo termo técnico, a página certa vem entre as 3 primeiras em 95% de 20 perguntas de situação escritas para conferir isso.
 
 ## <img src="docs/icones/modelos.svg" width="22" align="center" alt=""> Modelos e chaves
 
@@ -276,7 +273,7 @@ Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida)
 - **Resposta fiel à fonte:** se um bloco da resposta diz mais do que os slides citados dizem (menos de 30% dos termos em comum), a IA precisa reescrever antes de a resposta aparecer.
 - **Limite de tempo:** cada passo de um modelo tem até 20 segundos quando há reserva na fila; se travar, o próximo assume com as fontes já encontradas. Conexão derrubada no meio ganha uma segunda tentativa, e o motivo real de cada falha aparece no terminal da API. A pergunta inteira para em 90 segundos.
 - **A pergunta não morre:** se nenhum modelo terminar (sem cota, sem crédito, fora do ar ou lento), a resposta sai com os trechos das aulas que o Aster já tinha achado, com citação, e um aviso com o motivo de cada falha (por exemplo, `429 · limite de uso`).
-- **Escopo no servidor:** pergunta que não bate com nenhum slide nem fala de IA, mesmo depois de corrigir a digitação, é recusada antes de chegar ao modelo. Pedidos como "ignore as regras" ou "mostre seu prompt" também. A pesquisa web recusa consultas fora da matéria mesmo que o modelo tente.
+- **Escopo:** com IA disponível, quem decide o que é da matéria é o modelo, que entende situação, gíria e erro de digitação e recusa com gentileza o que for de fora. Sem IA, pergunta que não bate com nenhum slide nem fala de IA é recusada no servidor. Pedidos como "ignore as regras" ou "mostre seu prompt" são barrados no servidor sempre, com ou sem IA. A pesquisa web recusa consultas fora da matéria mesmo que o modelo tente.
 - **Memória local:** os fatos guardados ficam só no navegador do aluno (botão Memória no chat, com Esquecer).
 
 ## <img src="docs/icones/pastas.svg" width="22" align="center" alt=""> Estrutura de pastas

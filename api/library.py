@@ -235,30 +235,7 @@ def rank_candidates(query: str, document_id: str | None = None, limit: int = SEA
 
 
 def search(query: str, document_id: str | None = None, limit: int = SEARCH_LIMIT) -> list[Evidence]:
-    """Busca por palavras e, quando a pergunta descreve uma situação sem o termo do slide ("acerta no treino e
-    erra em dados novos"), também pelo conceito que ela descreve (api/concepts.py), que vem na frente."""
-    from api.concepts import concept_matches
-
-    base = [row.item for row in rank_candidates(query, document_id, limit)]
-    strong: list[Evidence] = []
-    weak: list[Evidence] = []
-    for concept, is_strong in concept_matches(query):
-        (strong if is_strong else weak).extend(row.item for row in rank_candidates(concept, document_id, 3))
-    # pista exata vai na frente; o vocabulário (sinal mais fraco) entra intercalado depois do 1º resultado normal,
-    # para não tirar o 1º lugar de uma pergunta comum que só esbarrou em palavras do conceito
-    found: list[Evidence] = list(strong)
-    rest = base[:]
-    if rest:
-        found.append(rest.pop(0))
-    while rest or weak:
-        if weak:
-            found.append(weak.pop(0))
-        if rest:
-            found.append(rest.pop(0))
-    unique: dict[str, Evidence] = {}
-    for item in found:
-        unique.setdefault(item.id, item)
-    return list(unique.values())[:limit]
+    return [row.item for row in rank_candidates(query, document_id, limit)]
 
 
 def search_relaxed(query: str, document_id: str | None = None, limit: int = SEARCH_LIMIT) -> list[Evidence]:

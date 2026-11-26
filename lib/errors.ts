@@ -25,6 +25,9 @@ export class ApiError extends Error {
 
 /** Monta o erro a partir da resposta HTTP e do corpo já lido (ou null, se não era JSON). */
 export function apiError(status: number, body: unknown): ApiError {
+  // a API do Aster sempre responde erro em JSON; 500 sem corpo é o Next avisando que não alcançou a API (desligada)
+  const empty = !body || (typeof body === "object" && !Object.keys(body as object).length);
+  if (status === 500 && empty) return new ApiError(`502 · ${BY_STATUS[502]}`, 502, "api_offline");
   const detail = (body as { detail?: unknown } | null)?.detail;
   const code = typeof detail === "object" && detail ? (detail as { code?: string }).code : undefined;
   const text = typeof detail === "object" && detail && "message" in detail

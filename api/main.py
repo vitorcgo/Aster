@@ -1189,11 +1189,6 @@ def in_scope(request: "AskRequest") -> bool:
     """A pergunta é da matéria? Vale se bater com algum slide, se falar de IA, ou se continuar uma conversa da matéria."""
     if mentions_ai(request.question) or search(request.question, limit=1) or search_relaxed(request.question, limit=1):
         return True
-    # situação descrita sem o termo do slide ("meu alarme dispara sem fogo"): o mapa de conceitos reconhece a matéria
-    from api.concepts import concept_queries
-
-    if concept_queries(request.question):
-        return True
     # aluno digita errado ("overflitting acontece porque?"): confere de novo com as palavras corrigidas
     fixed = fix_typos(request.question)
     if fixed != request.question and (mentions_ai(fixed) or search(fixed, limit=1) or search_relaxed(fixed, limit=1)):
@@ -1547,7 +1542,11 @@ async def run_tutor(request: AskRequest, http_request: Request):
     # apareça nos slides; com assunto de IA ou com pergunta junto, segue para a pesquisa normal
     if not guard and not light and PERSONAL.search(question) and not mentions_ai(question) and "?" not in question:
         light = True
-    if not guard and not light and not in_scope(request):
+    # com IA disponível, quem decide o que é da matéria é o modelo (ele entende situação, gíria e erro de digitação;
+    # o texto de regras manda recusar com gentileza o que for de fora). A checagem por palavras só vale sem IA.
+    with visitor.use(request.ai):
+        has_ai = bool(agent_models())
+    if not guard and not light and not has_ai and not in_scope(request):
         if PERSONAL.search(question):
             light = True
         else:
