@@ -166,7 +166,8 @@ def format_sequence(count: int, rng: random.Random) -> list[str]:
     return sequence
 
 
-def plan(request: SimuladoRequest, rng: random.Random) -> list[dict]:
+def plan(request: SimuladoRequest, rng: random.Random, used: dict[str, set[int]] | None = None) -> list[dict]:
+    """`used`: páginas já sorteadas nesta prova, para a rodada que completa as questões não repetir slide."""
     order = lecture_order(request.scope, request.count, rng)
     if not order:
         return []
@@ -174,7 +175,7 @@ def plan(request: SimuladoRequest, rng: random.Random) -> list[dict]:
     lib = library()
     subjects = {doc["id"]: doc["subject"] or doc["title"] for doc in lib.documents}
     items = []
-    used: dict[str, set[int]] = {}
+    used = {} if used is None else used
     for index in range(request.count):
         document_id = order[index]
         pages = pick_pages(document_id, rng, used.setdefault(document_id, set()))
@@ -393,7 +394,8 @@ async def run(request: SimuladoRequest, http_request: Request):
         # pede algumas a mais: a segunda leitura costuma descartar parte delas, e sobram as conferidas.
         # Um quarto a mais basta (era 40%); o que ainda faltar vem de uma segunda rodada só com as que faltam.
         spare = min(3, max(1, round(request.count * 0.25)))
-        items = await asyncio.to_thread(plan, request.model_copy(update={"count": min(10, request.count) + spare}), rng)
+        used_pages: dict[str, set[int]] = {}
+        items = await asyncio.to_thread(plan, request.model_copy(update={"count": min(10, request.count) + spare}), rng, used_pages)
         if not items:
             yield emit("failed", {"code": "no_materials", "message": "Não encontrei as aulas para montar o simulado."})
             return
@@ -440,7 +442,7 @@ async def run(request: SimuladoRequest, http_request: Request):
             if sent >= request.count or not sent:
                 break
             # faltou alguma (rejeitada no formato ou na conferência): pede de novo só as que faltam, de outras páginas
-            round_items = await asyncio.to_thread(plan, request.model_copy(update={"count": request.count - sent + 1}), rng)
+            round_items = await asyncio.to_thread(plan, request.model_copy(update={"count": request.count - sent + 1}), rng, used_pages)
             if not round_items:
                 break
         if not sent:
