@@ -3,8 +3,9 @@ setlocal
 cd /d "%~dp0"
 title Aster
 
-where python >nul 2>nul || (echo Instale o Python 3.12 ou superior: https://www.python.org/downloads/ & pause & exit /b 1)
-where npm >nul 2>nul || (echo Instale o Node.js 20 ou superior: https://nodejs.org/ & pause & exit /b 1)
+rem "where python" acha o atalho da Microsoft Store mesmo sem Python instalado: por isso roda o Python de verdade
+python -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>nul || (echo Instale o Python 3.11 ou superior: https://www.python.org/downloads/ e marque "Add python.exe to PATH" na instalacao. & pause & exit /b 1)
+call node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>20||(a===20&&b>=9)?0:1)" >nul 2>nul || (echo Instale o Node.js 20.9 ou superior: https://nodejs.org/ & pause & exit /b 1)
 
 if not exist ".env" (
   copy ".env.example" ".env" >nul

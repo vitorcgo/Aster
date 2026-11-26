@@ -438,7 +438,7 @@ Como agir, conforme a mensagem:
 
 Antes de responder uma dúvida da matéria, confira: o trecho que você vai citar diz mesmo o que você vai escrever? Se o trecho da busca for curto ou ambíguo, abra a página com ler_pagina. Se o material trouxer uma definição, use a definição do material, não a sua. Números, datas, nomes e fórmulas só entram na resposta se estiverem escritos em uma fonte que você recebeu.
 
-Ao chamar responder: escreva em português claro, como um bom monitor explicaria a um colega, em 1 a 3 blocos curtos. Cada bloco cita os ids que o sustentam (trechos das aulas ou web-N), somente ids que você recebeu das ferramentas nesta conversa. Quando misturar fontes, deixe explícito o que vem de fora das aulas (por exemplo, "Fora das aulas, ..."). Não invente fatos.
+Ao chamar responder: escreva em português claro, como um bom monitor explicaria a um colega, em 1 a 3 blocos curtos (no total, até uns 1.200 caracteres; o que passar de 1.800 é cortado). Cada bloco cita os ids que o sustentam (trechos das aulas ou web-N), somente ids que você recebeu das ferramentas nesta conversa. Quando misturar fontes, deixe explícito o que vem de fora das aulas (por exemplo, "Fora das aulas, ..."). Não invente fatos.
 
 Memória: <memoria_do_aluno> traz o que o aluno já contou em outras conversas, <perguntas_anteriores> lista as perguntas mais antigas desta conversa, em ordem, e <conversa_anterior> traz as últimas trocas inteiras. Use os dois com naturalidade (chame pelo nome, retome o assunto, entenda "e isso?", "explica melhor", "e o outro?" pelo contexto), sem ficar repetindo que lembra. Quando o aluno contar algo novo sobre si, chame lembrar e siga respondendo na mesma vez.
 
@@ -517,7 +517,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "blocos": {
                     "type": "array",
-                    "description": "De 1 a 3 blocos curtos.",
+                    "description": "De 1 a 3 blocos curtos, até uns 1.200 caracteres no total.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -557,6 +557,43 @@ class AnswerBlock(BaseModel):
 
 class GeneratedAnswer(BaseModel):
     blocks: list[AnswerBlock]
+
+
+def clip_text(text: str, limit: int) -> str:
+    """Corta no fim da última frase que cabe no limite (ou na última palavra, se não houver frase)."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    end = max(head.rfind(". "), head.rfind("! "), head.rfind("? "), head.rfind(".\n"))
+    if end >= limit * 0.4:
+        return head[: end + 1].strip()
+    return head[: head.rfind(" ")].rstrip(" ,;:") + "…" if " " in head else head
+
+
+def tidy_answer(answer: GeneratedAnswer, allowed_ids: set[str]) -> GeneratedAnswer:
+    """Ajusta o formato em vez de recusar: modelos grandes costumam escrever demais e, recusados, gastavam
+    todos os passos reescrevendo. Junta blocos a mais, tira citações repetidas ou que não vieram das
+    ferramentas (o bloco que ficar sem nenhuma continua recusado) e corta o texto no fim de uma frase."""
+    blocks = []
+    for block in answer.blocks:
+        text = block.text.strip()
+        if not text:
+            continue
+        citations = list(dict.fromkeys(block.citation_ids))
+        known = [citation for citation in citations if citation in allowed_ids]
+        blocks.append(AnswerBlock(text=text, citation_ids=known or citations))
+    if len(blocks) > 3:
+        tail = blocks[2:]
+        blocks = blocks[:2] + [AnswerBlock(text=" ".join(block.text for block in tail), citation_ids=list(dict.fromkeys(c for block in tail for c in block.citation_ids)))]
+    budget = 1800
+    tidy = []
+    for block in blocks:
+        if budget < 80:
+            break
+        text = clip_text(block.text, min(900, budget))
+        budget -= len(text)
+        tidy.append(AnswerBlock(text=text, citation_ids=block.citation_ids))
+    return GeneratedAnswer(blocks=tidy or blocks[:1])
 
 
 def validate_answer(answer: GeneratedAnswer, allowed_ids: set[str] | list[Evidence]) -> None:
@@ -884,6 +921,7 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
                     try:
                         raw_blocks = call.arguments.get("blocos") or []
                         answer = GeneratedAnswer(blocks=[AnswerBlock(text=str(block.get("texto", "")).strip(), citation_ids=[str(item) for item in block.get("citacoes", [])]) for block in raw_blocks if isinstance(block, dict)])
+                        answer = tidy_answer(answer, set(agent.seen))
                         validate_answer(answer, set(agent.seen))
                         weak = [] if agent.grounding_checked else unsupported_blocks(answer, {**agent.seen, "__pages__": agent.pages_read})
                         if weak:

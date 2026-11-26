@@ -20,6 +20,7 @@ from api.main import (
     gemini_models,
     material_paths,
     search,
+    tidy_answer,
     validate_answer,
 )
 
@@ -75,6 +76,20 @@ class AgentTest(unittest.TestCase):
         with self.assertRaises(InvalidAnswerError):
             validate_answer(GeneratedAnswer(blocks=[AnswerBlock(text=" ", citation_ids=["ref-1"])]), {"ref-1"})
         validate_answer(GeneratedAnswer(blocks=[AnswerBlock(text="Ok.", citation_ids=["ref-1", "web-1"])]), {"ref-1", "web-1"})
+
+    def test_long_answer_is_tidied_instead_of_refused(self):
+        # modelos grandes escreviam demais, eram recusados e gastavam todos os passos reescrevendo
+        sentence = "O deep learning empilha camadas de neurônios que aprendem representações cada vez mais abstratas. "
+        blocks = [AnswerBlock(text=sentence * 12, citation_ids=["ref-1", "ref-1", "inventada"]) for _ in range(5)]
+        tidy = tidy_answer(GeneratedAnswer(blocks=blocks), {"ref-1"})
+        validate_answer(tidy, {"ref-1"})
+        self.assertLessEqual(len(tidy.blocks), 3)
+        self.assertLessEqual(sum(len(block.text) for block in tidy.blocks), 1800)
+        self.assertTrue(all(block.text.endswith(".") for block in tidy.blocks))
+        self.assertEqual(tidy.blocks[0].citation_ids, ["ref-1"])
+        # bloco que só cita fonte inventada continua recusado
+        with self.assertRaises(InvalidAnswerError):
+            validate_answer(tidy_answer(GeneratedAnswer(blocks=[AnswerBlock(text="Algo.", citation_ids=["inventada"])]), {"ref-1"}), {"ref-1"})
 
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
     def test_agent_searches_reads_browses_and_answers(self):
