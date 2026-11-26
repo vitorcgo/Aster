@@ -35,6 +35,8 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   distDir: process.env.ASTER_DIST_DIR || ".next",
   poweredByHeader: false,
+  // o "N" do modo de desenvolvimento ficava em cima do campo de pergunta
+  devIndicators: false,
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
