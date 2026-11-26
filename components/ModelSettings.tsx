@@ -31,7 +31,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     const code = typeof detail === "object" && detail ? (detail as { code?: string }).code : undefined;
     if (response.status === 401) throw new ApiError(typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : "Entre de novo.", 401, code);
     if (response.status === 404 && (!detail || detail === "Not Found" || (typeof detail === "object" && (detail as { code?: string }).code === "route_not_found"))) throw new Error("A API em execução é de uma versão antiga e não tem o painel de modelos. Reinicie o servidor da API.");
-    const message = typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : typeof detail === "string" ? detail : "A API não respondeu.";
+    const message = typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : typeof detail === "string" ? detail : "A API do Aster não respondeu. Confira se a janela Aster API está aberta ou rode o iniciar de novo.";
     throw new ApiError(message, response.status, code);
   }
   return data as T;

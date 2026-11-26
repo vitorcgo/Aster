@@ -20,7 +20,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = (data as { detail?: { message?: string } | string }).detail;
-    throw new Error(typeof detail === "object" && detail?.message ? detail.message : typeof detail === "string" ? detail : "A API não respondeu.");
+    throw new Error(typeof detail === "object" && detail?.message ? detail.message : typeof detail === "string" ? detail : "A API do Aster não respondeu. Confira se a janela Aster API está aberta ou rode o iniciar de novo.");
   }
   return data as T;
 }

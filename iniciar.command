@@ -44,7 +44,12 @@ fi
 if [ ! -x "$VENV/bin/python" ]; then
   echo "Criando o ambiente Python na primeira execução..."
   "$PYTHON" -m venv "$VENV" || fechar 1
-  "$VENV/bin/python" -m pip install -q -r api/requirements.txt || fechar 1
+fi
+
+# se a instalação anterior falhou pela metade, a API não sobe: confere e instala o que faltar
+if ! "$VENV/bin/python" -c "import fastapi, uvicorn, pymupdf, google.genai, dotenv, cryptography" >/dev/null 2>&1; then
+  echo "Instalando as dependências da API..."
+  "$VENV/bin/python" -m pip install -q -r api/requirements.txt || { echo; echo "Não consegui instalar as dependências da API. Veja o erro acima."; fechar 1; }
 fi
 
 if [ ! -d "node_modules" ]; then

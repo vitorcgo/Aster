@@ -14,7 +14,12 @@ if not exist ".env" (
 if not exist ".venv\Scripts\python.exe" (
   echo Criando o ambiente Python na primeira execucao...
   python -m venv .venv || (pause & exit /b 1)
-  ".venv\Scripts\python.exe" -m pip install -q -r api\requirements.txt || (pause & exit /b 1)
+)
+
+rem se a instalacao anterior falhou pela metade, a API nao sobe: confere e instala o que faltar
+".venv\Scripts\python.exe" -c "import fastapi, uvicorn, pymupdf, google.genai, dotenv, cryptography" >nul 2>nul || (
+  echo Instalando as dependencias da API...
+  ".venv\Scripts\python.exe" -m pip install -q -r api\requirements.txt || (echo. & echo Nao consegui instalar as dependencias da API. Veja o erro acima. & pause & exit /b 1)
 )
 
 if not exist "node_modules" (

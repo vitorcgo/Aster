@@ -68,7 +68,7 @@ export async function labGet<T>(path: string): Promise<T> {
   if (!response.ok) {
     const detail = (data as { detail?: unknown }).detail;
     if (response.status === 404 && (!detail || (typeof detail === "object" && (detail as { code?: string }).code === "route_not_found"))) throw new Error("A API em execução não tem as rotas do Laboratório. Reinicie o servidor da API com o código atual.");
-    throw new Error(typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : typeof detail === "string" ? detail : "A API não respondeu.");
+    throw new Error(typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : typeof detail === "string" ? detail : "A API do Aster não respondeu. Confira se a janela Aster API está aberta ou rode o iniciar de novo.");
   }
   return data as T;
 }
@@ -78,7 +78,7 @@ export async function labPost<T>(path: string, body: unknown): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = (data as { detail?: unknown }).detail;
-    throw new Error(typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : typeof detail === "string" ? detail : "A API não respondeu.");
+    throw new Error(typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : typeof detail === "string" ? detail : "A API do Aster não respondeu. Confira se a janela Aster API está aberta ou rode o iniciar de novo.");
   }
   return data as T;
 }
