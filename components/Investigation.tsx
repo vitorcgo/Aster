@@ -230,7 +230,8 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
         setAutoScale(scale);
       }
       element.style.width = `${100 / scale}%`;
-      element.style.transform = scale < 1 ? `scale(${scale})` : "none";
+      // acima de 100% também escala (antes só encolhia, e o + não ampliava nada)
+      element.style.transform = scale !== 1 ? `scale(${scale})` : "none";
       // a escala não encolhe a caixa de layout; a margem negativa tira a sobra da área de rolagem
       element.style.marginBottom = `${-Math.round(element.offsetHeight * (1 - scale))}px`;
       frame.dataset.scale = String(scale);
@@ -314,8 +315,52 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
     // sem animação: o cursor desenha o bloco logo em seguida e não pode perseguir um alvo em movimento
     // ao recolher, a rolagem vertical da trilha em linhas precisa voltar ao topo, senão a faixa fica vazia
     if (compact) element.scrollTo({ top: 0, left: Math.max(0, newest.offsetLeft + newest.offsetWidth - element.clientWidth + 40) });
-    else if ((newest.offsetTop + newest.offsetHeight) * scale > element.scrollTop + element.clientHeight - 12) element.scrollTo({ top: Math.max(0, newest.offsetTop * scale - 14) });
+    else {
+      // ao expandir, a rolagem lateral do modo recolhido ficava presa e escondia o começo da trilha
+      if (element.scrollLeft) element.scrollTo({ left: 0 });
+      if ((newest.offsetTop + newest.offsetHeight) * scale > element.scrollTop + element.clientHeight - 12) element.scrollTo({ top: Math.max(0, newest.offsetTop * scale - 14) });
+    }
   }, [nodes.length, thinking, compact]);
+
+  // arrastar a trilha com o mouse para ver os passos de perto (botões e links continuam clicáveis)
+  const drag = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
+  const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const element = viewport.current;
+    if (!element || event.button !== 0 || event.pointerType === "touch") return;
+    if ((event.target as HTMLElement).closest("a, input, textarea")) return;
+    drag.current = { x: event.clientX, y: event.clientY, left: element.scrollLeft, top: element.scrollTop, moved: false };
+  };
+  // depois de arrastar, o clique que vem ao soltar não pode abrir o bloco que estava embaixo do mouse
+  const dragged = useRef(false);
+  const swallowClick = (event: React.MouseEvent) => {
+    if (!dragged.current) return;
+    dragged.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const element = viewport.current;
+    const state = drag.current;
+    if (!element || !state) return;
+    const dx = event.clientX - state.x;
+    const dy = event.clientY - state.y;
+    if (!state.moved) {
+      if (Math.abs(dx) + Math.abs(dy) < 5) return;
+      state.moved = true;
+      dragged.current = true;
+      element.setPointerCapture(event.pointerId);
+      element.classList.add("is-dragging");
+    }
+    element.scrollLeft = state.left - dx;
+    element.scrollTop = state.top - dy;
+  };
+  const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const element = viewport.current;
+    if (!drag.current?.moved) dragged.current = false;
+    drag.current = null;
+    element?.classList.remove("is-dragging");
+    if (element?.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId);
+  };
 
   const steps = nodes.filter((node) => node.kind === "search" || node.kind === "read" || node.kind === "web").length;
   const seconds = turn ? (turn.elapsed / 1000).toFixed(1).replace(".", ",") : "0";
@@ -355,7 +400,7 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
           <p>Cada busca, página aberta e pesquisa na web que o Aster fizer aparece aqui, no momento em que acontece.</p>
         </div>
       ) : (
-        <div className="track-viewport" ref={viewport}>
+        <div className="track-viewport" ref={viewport} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onClickCapture={swallowClick}>
         <div className="track" ref={track}>
           <svg className={`track-edges ${glow ? "is-glow" : ""}`} width={size.width} height={size.height} aria-hidden="true">
             {edges.map((edge, index) => (

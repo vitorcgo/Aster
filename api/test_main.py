@@ -77,6 +77,20 @@ class AgentTest(unittest.TestCase):
             validate_answer(GeneratedAnswer(blocks=[AnswerBlock(text=" ", citation_ids=["ref-1"])]), {"ref-1"})
         validate_answer(GeneratedAnswer(blocks=[AnswerBlock(text="Ok.", citation_ids=["ref-1", "web-1"])]), {"ref-1", "web-1"})
 
+    def test_rescue_shows_only_sources_about_the_question(self):
+        # nenhum modelo terminou: o Aster mostrava "O que é PLN?" para uma pergunta sobre Rust
+        from api.library import Evidence
+        from api.main import Agent, WebSource, rescue_answer
+        agent = Agent()
+        agent.seen["aula-4-p3-s0"] = Evidence("aula-4-p3-s0", "aula-4", "Aula 4", 3, "O que é o Processamento de Linguagem Natural?", "PLN")
+        agent.seen["web-1"] = WebSource("web-1", "Rust para machine learning", "https://example.org/rust", "example.org", "Rust tem bibliotecas de machine learning como burn e tch-rs.", "duckduckgo")
+        with patch("api.main.search", return_value=[]), patch("api.main.search_relaxed", return_value=[]):
+            rescue = rescue_answer(agent, "rust serve para machine learning?", "aviso")
+        self.assertEqual([source["id"] for source in rescue["sources"]], ["web-1"])
+        self.assertTrue(rescue["blocks"][0]["text"].startswith("Fora das aulas"))
+        with patch("api.main.search", return_value=[]), patch("api.main.search_relaxed", return_value=[]):
+            self.assertIsNone(rescue_answer(agent, "qual a capital da mongólia?", "aviso"))
+
     def test_long_answer_is_tidied_instead_of_refused(self):
         # modelos grandes escreviam demais, eram recusados e gastavam todos os passos reescrevendo
         sentence = "O deep learning empilha camadas de neurônios que aprendem representações cada vez mais abstratas. "
