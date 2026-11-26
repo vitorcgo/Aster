@@ -79,7 +79,7 @@ function reactSteps(events: RunEvent[]): Step[] {
     } else if (event.type === "web_results") {
       steps.push({ kind: "observation", title: "Observation", body: `${(data.results ?? []).length} fontes da web via ${providerLabel(data.provider)}`, t: event.t });
     } else if (event.type === "answer_check") {
-      steps.push({ kind: data.ok ? "observation" : "problem", title: data.ok ? "Verificação do servidor" : "Resposta recusada", body: data.message, t: event.t });
+      steps.push({ kind: data.ok ? "observation" : "problem", title: data.ok ? "Verificação do servidor" : "Revisando a resposta", body: data.message, t: event.t });
     } else if (event.type === "answer_ready") {
       steps.push({ kind: "answer", title: "Final answer", body: (data.blocks ?? []).map((block: { text: string }) => block.text).join(" "), t: event.t });
     } else if (event.type === "model_fallback") {

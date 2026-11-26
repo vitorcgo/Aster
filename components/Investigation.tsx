@@ -75,7 +75,7 @@ function nodeTitle(node: TraceNode) {
     case "search": return "Busca nas aulas";
     case "read": return "Leitura";
     case "web": return "Pesquisa na web";
-    case "check": return node.ok === null ? "Verificação" : node.ok ? "Verificado" : "Resposta recusada";
+    case "check": return node.ok === null ? "Verificação" : node.ok ? "Verificado" : "Revisando a resposta";
     case "fallback": return "Modelo reserva";
     case "answer": return node.chat ? "Conversa" : "Resposta";
     case "stop": return node.tone === "error" ? "Falha" : "Sem base";
