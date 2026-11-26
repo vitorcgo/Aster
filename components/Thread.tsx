@@ -126,13 +126,53 @@ function TurnActions({ turn, onEdit, onRetry, running }: { turn: Turn; onEdit: (
       <button type="button" className="turn-action" onClick={copy} title="Copiar a resposta com as fontes">
         <Icon name={copied ? "check" : "copy"} size={15} />{copied ? "Copiado" : "Copiar"}
       </button>
-      <button type="button" className="turn-action" onClick={() => onEdit(turn.question)} title="Colocar a pergunta no campo para ajustar">
-        <Icon name="edit" size={15} />Editar pergunta
+      <button type="button" className="turn-action" onClick={() => onEdit(turn.question)} title="Colocar a pergunta no campo para ajustar" aria-label="Editar pergunta">
+        <Icon name="edit" size={15} />Editar
       </button>
-      <button type="button" className="turn-action" onClick={() => onRetry(turn.question)} disabled={running} title="Fazer a mesma pergunta de novo">
-        <Icon name="replay" size={15} />Perguntar de novo
+      <button type="button" className="turn-action" onClick={() => onRetry(turn.question)} disabled={running} title="Fazer a mesma pergunta de novo" aria-label="Perguntar de novo">
+        <Icon name="replay" size={15} />Refazer
       </button>
     </div>
+  );
+}
+
+/** "Nenhum modelo respondeu. (nvidia/x: tempo esgotado; gemini-y: 429 · limite de uso)" vira a frase e a lista de tentativas. */
+function splitProblem(message: string): { text: string; tries: { model: string; reason: string }[] } {
+  const match = message.match(/^([\s\S]*?)\s*\(([^()]*:[^()]*)\)\s*([\s\S]*)$/);
+  if (!match) return { text: message, tries: [] };
+  const tries = match[2].split(/;\s*/).map((part) => {
+    const at = part.indexOf(": ");
+    const model = at > 0 ? part.slice(0, at) : part;
+    return { model: model.replace(/^[a-z0-9-]+\//i, ""), reason: at > 0 ? part.slice(at + 2) : "" };
+  }).filter((item) => item.model);
+  return { text: [match[1], match[3]].filter(Boolean).join(" "), tries };
+}
+
+function ProblemCard({ turn, running, onRetry, onEdit }: { turn: Turn; running: boolean; onRetry: (question: string) => void; onEdit: (question: string) => void }) {
+  const failed = turn.status === "failed";
+  const { text, tries } = splitProblem(turn.message ?? "");
+  return (
+    <motion.div className={`answer-problem ${failed ? "is-error" : ""}`} role={failed ? "alert" : undefined} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+      <div className="problem-head">
+        <span className="problem-icon" aria-hidden="true"><Icon name={failed ? "alert" : "search"} size={16} /></span>
+        <strong>{failed ? "Não consegui responder agora" : "Não encontrei base para responder"}</strong>
+      </div>
+      {text && <p className="problem-text">{text}</p>}
+      {tries.length > 0 && (
+        <ul className="problem-tries" aria-label="Modelos tentados">
+          {tries.map((item, index) => (
+            <li key={`${item.model}-${index}`}>
+              <span className="problem-model">{item.model}</span>
+              <span className="problem-reason">{item.reason}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="answer-problem-actions">
+        <button type="button" className="ghost-button dark" onClick={() => onRetry(turn.question)} disabled={running}><Icon name="replay" size={15} />Tentar de novo</button>
+        <button type="button" className="ghost-button dark" onClick={() => onEdit(turn.question)}><Icon name="edit" size={15} />Editar pergunta</button>
+      </div>
+    </motion.div>
   );
 }
 
@@ -259,10 +299,10 @@ function TurnAnswer({ turn, revealing, onRevealDone, onOpenSource, onShowTrace, 
               {webCount > 0 && lectureCount > 0 && <span className="badge badge-web">Aulas e web</span>}
             </div>
             {stage && (
-              <Link className="lab-link" href={`/laboratorio?etapa=${stage.id}&q=${encodeURIComponent(turn.question)}`}>
-                <Icon name="network" size={16} />
-                <span><strong>Ver no Laboratório</strong> {stage.title}: como o Aster faz isso</span>
-                <Icon name="right" size={16} />
+              <Link className="lab-link" href={`/laboratorio?etapa=${stage.id}&q=${encodeURIComponent(turn.question)}`} title={`${stage.title}: como o Aster faz isso`}>
+                <Icon name="network" size={15} />
+                <span><strong>Ver no Laboratório</strong> · {stage.title}</span>
+                <Icon name="right" size={15} />
               </Link>
             )}
             <SourceList turn={turn} onOpen={(item) => onOpenSource(item, turn)} />
@@ -443,13 +483,7 @@ export function Thread({ turns, revealId, holdId, onRevealDone, onOpenSource, on
                 )}
                 {showAnswer && <TurnAnswer turn={turn} revealing={revealing} onRevealDone={onRevealDone} onOpenSource={onOpenSource} onShowTrace={onShowTrace} onEdit={onEdit} onRetry={onRetry} running={running} active={turn.id === activeTurnId} />}
                 {(turn.status === "empty" || turn.status === "failed") && (
-                  <div className={`answer-problem ${turn.status === "failed" ? "is-error" : ""}`}>
-                    <p>{turn.message}</p>
-                    <div className="answer-problem-actions">
-                      <button type="button" className="ghost-button dark" onClick={() => onRetry(turn.question)} disabled={running}><Icon name="replay" size={15} />Tentar de novo</button>
-                      <button type="button" className="ghost-button dark" onClick={() => onEdit(turn.question)}><Icon name="edit" size={15} />Editar pergunta</button>
-                    </div>
-                  </div>
+                  <ProblemCard turn={turn} running={running} onRetry={onRetry} onEdit={onEdit} />
                 )}
               </motion.div>
             </div>
