@@ -356,7 +356,9 @@ export function Investigation({ turn, materials, compact, replaying, live, onTog
   };
   const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const element = viewport.current;
-    if (!drag.current?.moved) dragged.current = false;
+    // o clique (se vier) chega logo depois do pointerup; se não vier (soltou fora), a marca não pode engolir o próximo
+    if (drag.current?.moved) window.setTimeout(() => { dragged.current = false; }, 0);
+    else dragged.current = false;
     drag.current = null;
     element?.classList.remove("is-dragging");
     if (element?.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId);

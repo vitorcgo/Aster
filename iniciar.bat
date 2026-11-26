@@ -29,7 +29,7 @@ if not exist "node_modules" (
 )
 
 rem um Aster aberto antes (API ou site) prende as portas 8000 e 3000: fecha ele para subir tudo de novo
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000,3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>nul
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000,3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if ($p -and $p.ProcessName -match '^(node|python|pythonw)$') { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }" >nul 2>nul
 
 echo Subindo a API em http://127.0.0.1:8000 ...
 rem cmd /k deixa a janela aberta se a API cair, com o erro na tela
