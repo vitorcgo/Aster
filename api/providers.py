@@ -144,6 +144,16 @@ _no_thinking: set[str] = set()
 _bad_levels: set[tuple[str, str]] = set()
 
 
+# erros de rede dos SDKs (httpx e a API de interações do Gemini): conexão caída, não demora
+CONNECTION_ERRORS = {"APIConnectionError", "ConnectError", "RemoteProtocolError", "ReadError", "WriteError", "ConnectionError", "RemoteDisconnected"}
+
+
+def key_rejected(error: Exception) -> bool:
+    """Chave inválida, venha como 401 (OpenAI, NVIDIA) ou como 400 com API_KEY_INVALID (Gemini)."""
+    text = str(error)
+    return "API_KEY_INVALID" in text or "API key not valid" in text
+
+
 def _thinking_refused(error: Exception) -> bool:
     """400 dizendo que o nível de raciocínio não vale para o modelo. A API de interações lança outra classe
     de erro que não é genai_errors.APIError, então olhamos o código e a mensagem de qualquer exceção."""
@@ -174,12 +184,20 @@ class GeminiSession:
             config.update({"thinking_level": level, "thinking_summaries": "auto"})
 
         def create(generation_config: dict):
-            return client.interactions.create(model=self.spec.model, input=self.history, tools=self.tools, system_instruction=self.system, store=False, timeout=25.0, generation_config=generation_config)
+            for attempt in (1, 2):
+                try:
+                    return client.interactions.create(model=self.spec.model, input=self.history, tools=self.tools, system_instruction=self.system, store=False, timeout=25.0, generation_config=generation_config)
+                except Exception as error:
+                    # conexão caída no meio ganha uma segunda tentativa; demora e erros do provedor, não
+                    if attempt == 2 or type(error).__name__ not in CONNECTION_ERRORS:
+                        raise
+                    time.sleep(0.6)
 
         try:
             interaction = create(config)
         except Exception as error:
-            if "thinking_level" not in config or not (_thinking_refused(error) or (isinstance(error, genai_errors.APIError) and error.code == 400)):
+            # chave inválida também vem como 400: não é o raciocínio, e o modelo não pode ficar marcado como sem raciocínio
+            if key_rejected(error) or "thinking_level" not in config or not (_thinking_refused(error) or (isinstance(error, genai_errors.APIError) and error.code == 400)):
                 raise
             if config["thinking_level"] != "low":
                 # o nível pedido não vale para este modelo: tenta o padrão, que todos os modelos com raciocínio aceitam

@@ -49,6 +49,7 @@ from api.library import (  # noqa: F401  (reexportados para o Laboratório e os 
     SEARCH_LIMIT,
 )
 from api.providers import (
+    CONNECTION_ERRORS,
     PROVIDERS,
     ModelSpec,
     ModelTurn,
@@ -59,6 +60,7 @@ from api.providers import (
     make_session,
     mask,
     save_settings,
+    key_rejected,
     test_model,
 )
 
@@ -226,6 +228,20 @@ def _http_status(error: Exception) -> int | None:
 def classify_generation_error(error: Exception) -> GenerationFailure:
     if isinstance(error, InvalidAnswerError):
         return GenerationFailure("invalid_answer", "O modelo não conseguiu montar uma resposta com fontes válidas. Reformule a pergunta.", True, "resposta sem fonte válida")
+    # o Gemini responde chave inválida com 400 (e não 401): sem isto o aluno lia "o modelo pode não aceitar ferramentas"
+    if key_rejected(error):
+        return GenerationFailure("invalid_key", "A chave do provedor foi recusada. Confira a chave em Modelos.", True, "chave recusada")
+    # erros de rede do SDK do Gemini (httpx) não são OSError: pelo nome da classe
+    kind = type(error).__name__
+    # o SDK embrulha o tempo esgotado do httpx num APIConnectionError: a causa original diz o que foi
+    chain, cause = [], error
+    while cause is not None and len(chain) < 6:
+        chain.append(type(cause).__name__)
+        cause = cause.__cause__ or cause.__context__
+    if any("Timeout" in name for name in chain):
+        return GenerationFailure("timeout", "O provedor demorou demais para responder. Tente um modelo mais rápido.", True, "tempo esgotado no provedor")
+    if kind in CONNECTION_ERRORS:
+        return GenerationFailure("connection_error", "A conexão com o provedor caiu. Tente novamente.", True, "o provedor derrubou a conexão")
     status = _http_status(error)
     if status is not None:
         if status == 401:
