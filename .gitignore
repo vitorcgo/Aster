@@ -15,6 +15,7 @@ node_modules/
 /data/codigo-de-configuracao.txt
 /data/settings.tmp
 /*.pdf
+!/Aula [0-9]*.pdf
 __pycache__/
 .venv/
 .venv-mac/

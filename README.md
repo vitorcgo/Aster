@@ -17,7 +17,7 @@ e responde citando cada fonte. Cada passo aparece na tela no momento em que acon
 
 <br>
 
-> Trabalho da disciplina de Inteligência Artificial (SENAC, prof. Daniel Cavalcante). Os PDFs das aulas não fazem parte do repositório.
+> Trabalho da disciplina de Inteligência Artificial (SENAC, prof. Daniel Cavalcante). Os PDFs das 12 aulas vêm junto no repositório.
 
 ## Sumário
 
@@ -102,7 +102,7 @@ npm run dev
 
 Abra `http://127.0.0.1:3000`, clique no botão de modelo no topo e cole a **sua chave de IA** (o Gemini tem plano gratuito em [aistudio.google.com/apikey](https://aistudio.google.com/apikey)). Não precisa de `.env`.
 
-Coloque os arquivos `Aula 1.pdf` a `Aula 12.pdf` na raiz do projeto. Outros PDFs entram por `data/materials/`.
+Os arquivos `Aula 1.pdf` a `Aula 12.pdf` já vêm na raiz do projeto. Outros PDFs entram por `data/materials/`.
 
 `npm run dev` escuta só neste computador. Para abrir no celular, use `npm run dev:rede` numa rede confiável.
 
