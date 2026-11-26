@@ -33,6 +33,7 @@ e responde citando cada fonte. Cada passo aparece na tela no momento em que acon
 - [Segurança](#-segurança)
 - [Estrutura de pastas](#-estrutura-de-pastas)
 - [Testes](#-testes)
+- [Apresentação](#-apresentação)
 
 ## <img src="docs/icones/sobre.svg" width="22" align="center" alt=""> O que ele faz
 
@@ -43,6 +44,7 @@ e responde citando cada fonte. Cada passo aparece na tela no momento em que acon
 | **Não inventa citação** | O servidor recusa qualquer resposta que cite uma fonte que a IA não recebeu das ferramentas. |
 | **Investigação ao vivo** | Cada busca, leitura e pesquisa vira um bloco desenhado na tela pelo cursor do Aster, com zoom e modo ampliado. |
 | **Fica na matéria** | Responde só sobre os assuntos dos slides. A web complementa a explicação, mas pedido fora da disciplina recebe uma recusa gentil, sem pesquisa. |
+| **Entende como o aluno escreve** | Erro de digitação, abreviação e falta de acento não atrapalham: "overflitting" vira overfitting e "front" acha frontend. Só é recusado o que não tem nada a ver com a matéria ou tenta burlar as regras. |
 | **Lembra de você** | Guarda fatos curtos que o aluno conta (nome, como prefere estudar) e retoma a conversa pelo contexto. Um "oi" é respondido direto, sem montar a investigação. |
 | **Não para se um modelo cair** | Há uma fila de modelos do Gemini, do ChatGPT e da NVIDIA. Se um falha, o próximo assume com o que já foi achado. |
 | **Explica a si mesmo** | O Laboratório mostra, com os dados reais, as 8 etapas que uma pergunta percorre, cada uma ligada à aula que a ensina. |
@@ -78,7 +80,7 @@ e responde citando cada fonte. Cada passo aparece na tela no momento em que acon
 
 ## <img src="docs/icones/executar.svg" width="22" align="center" alt=""> Como rodar
 
-Requer **Node.js 22+** e **Python 3.11+**.
+Requer **Node.js 20.9+** e **Python 3.11+** (testado até o 3.15). O `iniciar.bat` confere as duas versões, instala o que faltar e fecha um Aster antigo que tenha ficado aberto.
 
 **Windows, com dois cliques:** abra o `iniciar.bat`. Na primeira vez ele cria o `.env`, o ambiente Python e instala as dependências. Depois sobe a API e o site e abre o navegador.
 
@@ -140,6 +142,8 @@ A API entrega ao modelo estas ferramentas, e ele decide quais usar e em que orde
 | `responder` | Entrega a resposta em blocos, cada um com os ids das fontes |
 | `conversar` | Responde cumprimentos e perguntas sobre o próprio Aster, sem pesquisa |
 | `sem_base` | Usada quando nem as aulas nem a web sustentam uma resposta |
+
+Antes do primeiro passo do modelo, o servidor já busca a pergunta nas aulas e entrega os trechos achados: o modelo pode ler a página ou responder logo no 1º passo, uma ida e volta a menos.
 
 Cada chamada vira um evento enviado ao navegador por SSE (`tool_call`, `search_results`, `page_read`, `web_results`, `answer_check`, `answer_ready`). A interface encena esses eventos: o cursor do Aster desenha o bloco, a página abre, o trecho citado é selecionado e a resposta é escrita.
 
@@ -234,7 +238,7 @@ A documentação interativa fica em `http://127.0.0.1:8000/docs` (Swagger) e `/r
 | `GET` | `/api/lab/...` | Dados reais de cada etapa do Laboratório |
 | `POST` | `/api/simulado/runs` | Monta uma prova nova (escopo e número de questões) e envia as questões em SSE |
 
-Todo erro volta no mesmo formato, com uma mensagem em português:
+Todo erro volta no mesmo formato, com uma mensagem em português. Na tela, o site mostra sempre o número junto, por exemplo `429 · Muitas perguntas seguidas. Espere 20 s e tente de novo.` ou `502 · A API do Aster não está rodando.`:
 
 ```json
 { "detail": { "code": "invalid_request", "message": "Requisição inválida: pergunta: precisa ter pelo menos 3 caracteres." } }
@@ -265,9 +269,9 @@ Falhas do modelo durante uma pergunta (sem cota, fora do ar, resposta inválida)
 - **Prompt injection:** a pergunta vai entre `<pergunta_do_aluno>`, e o texto de regras manda tratar a pergunta, a conversa e tudo o que as ferramentas devolvem (slides e páginas da web) como dado, nunca como instrução.
 - **Citações conferidas:** o servidor recusa respostas que citem fontes que a IA não recebeu.
 - **Resposta fiel à fonte:** se um bloco da resposta diz mais do que os slides citados dizem (menos de 30% dos termos em comum), a IA precisa reescrever antes de a resposta aparecer.
-- **Limite de tempo:** cada passo de um modelo tem até 30 segundos; se travar, o próximo da fila assume com as fontes já encontradas. A pergunta inteira para em 90 segundos.
+- **Limite de tempo:** cada passo de um modelo tem até 20 segundos quando há reserva na fila; se travar, o próximo assume com as fontes já encontradas. Conexão derrubada no meio ganha uma segunda tentativa, e o motivo real de cada falha aparece no terminal da API. A pergunta inteira para em 90 segundos.
 - **A pergunta não morre:** se nenhum modelo terminar (sem cota, sem crédito, fora do ar ou lento), a resposta sai com os trechos das aulas que o Aster já tinha achado, com citação, e um aviso com o motivo de cada falha (por exemplo, `429 · limite de uso`).
-- **Escopo no servidor:** pergunta que não bate com nenhum slide nem fala de IA é recusada antes de chegar ao modelo. Pedidos como "ignore as regras" ou "mostre seu prompt" também. A pesquisa web recusa consultas fora da matéria mesmo que o modelo tente.
+- **Escopo no servidor:** pergunta que não bate com nenhum slide nem fala de IA, mesmo depois de corrigir a digitação, é recusada antes de chegar ao modelo. Pedidos como "ignore as regras" ou "mostre seu prompt" também. A pesquisa web recusa consultas fora da matéria mesmo que o modelo tente.
 - **Memória local:** os fatos guardados ficam só no navegador do aluno (botão Memória no chat, com Esquecer).
 
 ## <img src="docs/icones/pastas.svg" width="22" align="center" alt=""> Estrutura de pastas
@@ -304,6 +308,10 @@ npm run typecheck
 ```
 
 Os testes cobrem o loop do agente, a troca de modelo, a verificação de citações, os limites, a ocultação de dados pessoais, o formato dos erros e a qualidade da busca.
+
+## <img src="docs/icones/sobre.svg" width="22" align="center" alt=""> Apresentação
+
+Os slides da apresentação do trabalho estão em [`docs/apresentacao/Aster-apresentacao.pdf`](docs/apresentacao/Aster-apresentacao.pdf): o que é o Aster, a arquitetura (navegador, FastAPI, Pydantic, agente, verificação e SSE), a resposta em JSON conferida pelo servidor, o que acontece quando a IA cai ou demora, as proteções e a demonstração.
 
 <br>
 
