@@ -27,8 +27,12 @@ if not exist "node_modules" (
   call npm install || (pause & exit /b 1)
 )
 
+rem um Aster aberto antes (API ou site) prende as portas 8000 e 3000: fecha ele para subir tudo de novo
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000,3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>nul
+
 echo Subindo a API em http://127.0.0.1:8000 ...
-start "Aster API" /min ".venv\Scripts\python.exe" -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+rem cmd /k deixa a janela aberta se a API cair, com o erro na tela
+start "Aster API" /min cmd /k ".venv\Scripts\python.exe -m uvicorn api.main:app --host 127.0.0.1 --port 8000"
 
 echo Subindo o site em http://127.0.0.1:3000 ...
 start "" cmd /c "timeout /t 6 >nul & start http://127.0.0.1:3000"
