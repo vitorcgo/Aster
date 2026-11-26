@@ -26,9 +26,15 @@ LETTERS = "ABCDE"
 # com cerca de um quarto das questões vindo das aulas anteriores, para não esquecer a base.
 RECENT_LECTURES = 2
 REVIEW_SHARE = 0.25
-DEADLINE_SECONDS = 75
-# se um modelo não respondeu neste tempo, o próximo da fila começa junto; vale a primeira resposta boa
-STAGGER_SECONDS = 4
+# com 2 blocos por vez, uma prova de 10 questões leva umas 3 rodadas (escrever + conferir); as questões
+# aparecem conforme cada bloco termina, então o aluno já vai respondendo enquanto o resto chega
+DEADLINE_SECONDS = 120
+# se um modelo não respondeu neste tempo, o próximo da fila começa junto; vale a primeira resposta boa.
+# Era 4 s: escrever 3 questões quase sempre leva mais que isso, e cada bloco acabava pago 2 ou 3 vezes.
+# Se o modelo FALHA (sem cota, chave recusada), o próximo começa na hora, sem esperar.
+STAGGER_SECONDS = 12
+# blocos escritos ao mesmo tempo: todos juntos estouravam o limite por minuto dos planos gratuitos (429)
+PARALLEL_CHUNKS = 2
 # a prova é escrita em blocos pequenos ao mesmo tempo: a resposta de cada pedido é curta e chega em poucos segundos
 CHUNK_SIZE = 3
 # o modelo que entregou por último vai para a frente da fila nos próximos pedidos
@@ -106,13 +112,17 @@ def lecture_ids(scope: str) -> list[str]:
     return ids[-RECENT_LECTURES:] if scope == "recentes" else ids
 
 
-def pick_pages(document_id: str, rng: random.Random) -> list[int]:
-    """Três páginas seguidas com conteúdo, sorteadas dentro da aula."""
+def pick_pages(document_id: str, rng: random.Random, used: set[int] | None = None) -> list[int]:
+    """Três páginas seguidas com conteúdo, sorteadas dentro da aula, evitando as já usadas nesta prova
+    (duas questões sobre o mesmo slide saíam quase iguais)."""
     lib = library()
     pages = sorted(page for (doc, page), text in lib.pages.items() if doc == document_id and len(text.text) > 160)
     if not pages:
         return []
-    start = rng.randrange(max(1, len(pages) - 2))
+    starts = list(range(max(1, len(pages) - 2)))
+    rng.shuffle(starts)
+    fresh = [start for start in starts if not used or not used.intersection(pages[start:start + 3])]
+    start = (fresh or starts)[0]
     return pages[start:start + 3]
 
 
@@ -164,9 +174,11 @@ def plan(request: SimuladoRequest, rng: random.Random) -> list[dict]:
     lib = library()
     subjects = {doc["id"]: doc["subject"] or doc["title"] for doc in lib.documents}
     items = []
+    used: dict[str, set[int]] = {}
     for index in range(request.count):
         document_id = order[index]
-        pages = pick_pages(document_id, rng)
+        pages = pick_pages(document_id, rng, used.setdefault(document_id, set()))
+        used[document_id].update(pages)
         if not pages:
             continue
         items.append({"n": len(items) + 1, "document_id": document_id, "subject": subjects.get(document_id, ""), "pages": pages, "format": formats[index]})
@@ -378,8 +390,9 @@ async def run(request: SimuladoRequest, http_request: Request):
         def emit(kind: str, data: dict) -> str:
             return f"data: {json.dumps({'type': kind, 't': round((time.perf_counter() - started) * 1000), 'data': data}, ensure_ascii=False)}\n\n"
 
-        # pede algumas a mais: a segunda leitura costuma descartar parte delas, e sobram as conferidas
-        spare = min(4, max(1, round(request.count * 0.4)))
+        # pede algumas a mais: a segunda leitura costuma descartar parte delas, e sobram as conferidas.
+        # Um quarto a mais basta (era 40%); o que ainda faltar vem de uma segunda rodada só com as que faltam.
+        spare = min(3, max(1, round(request.count * 0.25)))
         items = await asyncio.to_thread(plan, request.model_copy(update={"count": min(10, request.count) + spare}), rng)
         if not items:
             yield emit("failed", {"code": "no_materials", "message": "Não encontrei as aulas para montar o simulado."})
@@ -395,7 +408,13 @@ async def run(request: SimuladoRequest, http_request: Request):
         round_items = items
         for _attempt in range(2):
             chunks = [round_items[index:index + CHUNK_SIZE] for index in range(0, len(round_items), CHUNK_SIZE)]
-            tasks = [asyncio.create_task(asyncio.to_thread(write_chunk, chunk, random.Random(rng.random()))) for chunk in chunks]
+            gate = asyncio.Semaphore(PARALLEL_CHUNKS)
+
+            async def limited(chunk: list[dict], seed: float):
+                async with gate:
+                    return await asyncio.to_thread(write_chunk, chunk, random.Random(seed))
+
+            tasks = [asyncio.create_task(limited(chunk, rng.random())) for chunk in chunks]
             try:
                 for finished in asyncio.as_completed(tasks, timeout=DEADLINE_SECONDS):
                     try:

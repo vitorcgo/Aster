@@ -842,6 +842,16 @@ class SimuladoTest(unittest.TestCase):
         self.client = TestClient(app)
         security.reset_limits()
 
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_plan_never_repeats_a_page_between_questions(self):
+        # duas questões sobre o mesmo slide saíam quase iguais
+        import random
+        from api.simulado import SimuladoRequest, plan
+        for seed in range(6):
+            request = SimuladoRequest(scope="recentes", count=10).model_copy(update={"count": 13})
+            pages = [(item["document_id"], page) for item in plan(request, random.Random(seed)) for page in item["pages"]]
+            self.assertEqual(len(pages), len(set(pages)), f"sorteio {seed}")
+
     def entry(self, **changes):
         base = {"numero": 1, "enunciado": "Uma equipe avalia um agente de IA em produção e precisa decidir o próximo passo. O que fazer?",
                 "alternativas": ["um", "dois", "três", "quatro", "cinco"], "correta": "B",
