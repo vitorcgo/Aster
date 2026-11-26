@@ -164,9 +164,9 @@ A busca é medida em 26 perguntas com a página certa conferida (`api/eval_set.p
 | | Antes | Agora |
 | --- | --- | --- |
 | Página certa em 1º lugar | 65% | **81%** |
-| Entre as 3 primeiras | 65% | **85%** |
-| Entre as 6 que o agente lê | 92% | 92% |
-| MRR | 0,71 | **0,84** |
+| Entre as 3 primeiras | 65% | **88%** |
+| Entre as 6 que o agente lê | 92% | **96%** |
+| MRR | 0,71 | **0,86** |
 
 O ganho aparece nos dois grupos de perguntas (simulados e conceitos do sistema). Os erros que sobram são perguntas em forma de situação, em que o aluno descreve o problema sem usar o termo do slide. É o limite da busca por palavras, e a etapa de embeddings do Laboratório mostra o caminho para resolver.
 

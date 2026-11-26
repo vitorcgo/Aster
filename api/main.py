@@ -922,8 +922,13 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
                 yield emit(kind, data)
             # e abre as 2 páginas mais promissoras (são curtas, ~500 caracteres): o texto de regras pedia ler antes de
             # citar, e isso custava mais um passo inteiro do modelo em quase toda pergunta
+            # só quando a busca foi firme: na busca relaxada (aviso) os trechos podem não ter relação, e a tela
+            # mostraria o Aster lendo slides que não têm nada a ver com a pergunta
+            # e nem quando a pergunta tem um termo que não existe em aula nenhuma ("rust"): o assunto está fora
+            # dos slides, os trechos achados são só vizinhos, e quem decide se abre ou vai à web é o modelo
+            unknown = terms(first_search.arguments["consulta"]) - corpus_terms()
             pages: list[tuple[str, int]] = []
-            for hit in payload["trechos"]:
+            for hit in ([] if payload.get("aviso") or unknown else payload["trechos"]):
                 if (hit["aula"], hit["pagina"]) not in pages:
                     pages.append((hit["aula"], hit["pagina"]))
             for number, (document_id, page) in enumerate(pages[:2], start=2):
@@ -1127,6 +1132,20 @@ def _vocabulary() -> tuple[frozenset[str], dict[int, list[str]]]:
             by_length.setdefault(len(word), []).append(word)
         _VOCABULARY = (frozenset(words), by_length)
     return _VOCABULARY
+
+
+_CORPUS_TERMS: frozenset[str] | None = None
+
+
+def corpus_terms() -> frozenset[str]:
+    """Todos os termos (já cortados) que aparecem em alguma página das aulas."""
+    global _CORPUS_TERMS
+    if _CORPUS_TERMS is None:
+        found: set[str] = set()
+        for page in library().pages.values():
+            found |= terms(f"{page.heading} {page.text}")
+        _CORPUS_TERMS = frozenset(found)
+    return _CORPUS_TERMS
 
 
 def fix_typos(text: str) -> str:

@@ -93,7 +93,7 @@ SECOND_PASSAGE_WEIGHT = 0.25
 def stem(word: str) -> str:
     if len(word) > 4 and word.endswith("s"):
         word = word[:-1]
-    for suffix in ("coes", "cao", "mente", "idade", "agem", "ismo"):
+    for suffix in ("coes", "cao", "mente", "idade", "agem", "ismo", "ing"):
         if len(word) > len(suffix) + 3 and word.endswith(suffix):
             word = word[: -len(suffix)]
             break
