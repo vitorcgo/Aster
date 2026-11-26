@@ -240,6 +240,43 @@ class GeminiSession:
 
 # ---------------------------------------------------------------- ChatGPT e NVIDIA (formato OpenAI)
 
+def _loose_json(value: Any) -> Any:
+    """JSON como os modelos mandam de verdade: às vezes dentro de ```json ... ```, ou com texto antes e depois."""
+    if isinstance(value, (dict, list)):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return {}
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
+    try:
+        return json.loads(text)
+    except ValueError:
+        start, end = text.find("{"), text.rfind("}")
+        if 0 <= start < end:
+            try:
+                return json.loads(text[start:end + 1])
+            except ValueError:
+                pass
+    return {}
+
+
+def _calls_in_text(content: str, names: set[str]) -> list[tuple[str, dict]]:
+    """Chamadas de ferramenta escritas no texto da resposta: {"name": "responder", "arguments": {...}}."""
+    found: list[tuple[str, dict]] = []
+    pieces = re.findall(r"<tool_call>([\s\S]*?)</tool_call>", content) or re.findall(r"```(?:json)?\s*([\s\S]*?)```", content) or [content]
+    for piece in pieces:
+        data = _loose_json(piece)
+        for item in data if isinstance(data, list) else [data]:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or (item.get("function") or {}).get("name")
+            arguments = item.get("arguments", item.get("parameters", (item.get("function") or {}).get("arguments", {})))
+            arguments = _loose_json(arguments)
+            if name in names and isinstance(arguments, dict):
+                found.append((name, arguments))
+    return found
+
+
 class ChatSession:
     def __init__(self, spec: ModelSpec, key: str, system: str, tools: list[dict], user_text: str):
         self.spec = spec
@@ -272,11 +309,18 @@ class ChatSession:
         calls: list[ToolCall] = []
         for index, item in enumerate(tool_calls):
             function = item.get("function") or {}
-            try:
-                arguments = json.loads(function.get("arguments") or "{}")
-            except ValueError:
-                arguments = {}
+            arguments = _loose_json(function.get("arguments"))
             calls.append(ToolCall(item.get("id") or f"call-{len(self.messages)}-{index}", function.get("name", ""), arguments if isinstance(arguments, dict) else {}))
+        if not calls:
+            # alguns modelos da NVIDIA escrevem a chamada no texto (<tool_call>{...}</tool_call> ou um JSON solto)
+            # em vez de usar tool_calls; sem isto o Aster não via chamada nenhuma e acabava em too_many_steps
+            names = {tool["function"]["name"] for tool in self.tools}
+            for index, (name, arguments) in enumerate(_calls_in_text(message.get("content") or "", names)):
+                calls.append(ToolCall(f"text-{len(self.messages)}-{index}", name, arguments))
+            if calls:
+                # o histórico precisa mostrar a chamada como chamada, para o resultado da ferramenta ter a que responder
+                stored["tool_calls"] = [{"id": call.id, "type": "function", "function": {"name": call.name, "arguments": json.dumps(call.arguments, ensure_ascii=False)}} for call in calls]
+                stored["content"] = ""
         thoughts = []
         reasoning = message.get("reasoning_content") or message.get("reasoning")
         if isinstance(reasoning, str) and reasoning.strip():

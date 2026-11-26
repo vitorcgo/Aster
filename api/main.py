@@ -631,14 +631,39 @@ def tidy_answer(answer: GeneratedAnswer, allowed_ids: set[str]) -> GeneratedAnsw
     """Ajusta o formato em vez de recusar: modelos grandes costumam escrever demais e, recusados, gastavam
     todos os passos reescrevendo. Junta blocos a mais, tira citações repetidas ou que não vieram das
     ferramentas (o bloco que ficar sem nenhuma continua recusado) e corta o texto no fim de uma frase."""
+    def repair(citation: str) -> str:
+        # id quase certo: "aula-2-p22" (sem o trecho), "web1", "[aula-2-p22-s0]", "Aula 2 p22 s0"
+        if citation in allowed_ids:
+            return citation
+        clean = re.sub(r"[\s_]+", "-", citation.strip().strip("[](){}\"'.,").lower())
+        clean = re.sub(r"^web-?(\d+)$", r"web-\1", clean)
+        if clean in allowed_ids:
+            return clean
+        prefixed = sorted(known for known in allowed_ids if known.startswith(clean + "-"))
+        return prefixed[0] if prefixed else citation
+
     blocks = []
     for block in answer.blocks:
         text = block.text.strip()
         if not text:
             continue
-        citations = list(dict.fromkeys(block.citation_ids))
+        citations = list(dict.fromkeys(repair(citation) for citation in block.citation_ids))
         known = [citation for citation in citations if citation in allowed_ids]
         blocks.append(AnswerBlock(text=text, citation_ids=known or citations))
+    # bloco sem citação (uma frase de introdução ou de fechamento) junta com o vizinho citado, em vez de derrubar a resposta
+    if any(block.citation_ids for block in blocks):
+        merged: list[AnswerBlock] = []
+        pending = ""
+        for block in blocks:
+            if not block.citation_ids:
+                if merged:
+                    merged[-1] = AnswerBlock(text=f"{merged[-1].text} {block.text}", citation_ids=merged[-1].citation_ids)
+                else:
+                    pending = f"{pending} {block.text}".strip()
+                continue
+            merged.append(AnswerBlock(text=f"{pending} {block.text}".strip(), citation_ids=block.citation_ids))
+            pending = ""
+        blocks = merged
     if len(blocks) > 3:
         tail = blocks[2:]
         blocks = blocks[:2] + [AnswerBlock(text=" ".join(block.text for block in tail), citation_ids=list(dict.fromkeys(c for block in tail for c in block.citation_ids)))]
@@ -982,7 +1007,8 @@ async def run_agent(request: AskRequest, emit) -> AsyncIterator[str]:
             for thought in turn.thoughts:
                 yield emit("agent_thought", {"text": clean_thought(thought)})
             if not turn.calls:
-                session.nudge("Use uma das ferramentas. Para terminar, chame responder, conversar ou sem_base.")
+                # modelo que respondeu em texto: o aviso diz exatamente como chamar a ferramenta
+                session.nudge('Você respondeu em texto, sem chamar ferramenta. Chame uma ferramenta. Para terminar, chame responder com {"blocos": [{"texto": "sua explicação", "citacoes": ["id do trecho"]}]}, usando os ids dos trechos que você recebeu; ou conversar, ou sem_base.')
                 continue
             results: list[tuple[ToolCall, dict]] = []
             for call in turn.calls:

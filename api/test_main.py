@@ -10,6 +10,7 @@ from google.genai import errors as genai_errors
 
 from api import security
 from api.main import (
+    TOOLS,
     AnswerBlock,
     GeneratedAnswer,
     InvalidAnswerError,
@@ -77,6 +78,36 @@ class AgentTest(unittest.TestCase):
         with self.assertRaises(InvalidAnswerError):
             validate_answer(GeneratedAnswer(blocks=[AnswerBlock(text=" ", citation_ids=["ref-1"])]), {"ref-1"})
         validate_answer(GeneratedAnswer(blocks=[AnswerBlock(text="Ok.", citation_ids=["ref-1", "web-1"])]), {"ref-1", "web-1"})
+
+    def test_nvidia_style_replies_become_tool_calls(self):
+        # modelos da NVIDIA escrevem a chamada no texto, embrulham o JSON em ``` ou mandam texto antes dele
+        from api.providers import ChatSession, ModelSpec
+        replies = [
+            {"content": '<tool_call>{"name": "buscar_nas_aulas", "arguments": {"consulta": "rag"}}</tool_call>'},
+            {"content": "\n".join(["Vou responder:", "```json", '{"name": "responder", "arguments": {"blocos": [{"texto": "A", "citacoes": ["x"]}]}}', "```"])},
+            {"content": "", "tool_calls": [{"id": "c1", "function": {"name": "responder", "arguments": "\n".join(["```json", '{"blocos": [{"texto": "A", "citacoes": ["x"]}]}', "```"])}}]},
+        ]
+        expected = [("buscar_nas_aulas", {"consulta": "rag"}), ("responder", {"blocos": [{"texto": "A", "citacoes": ["x"]}]}), ("responder", {"blocos": [{"texto": "A", "citacoes": ["x"]}]})]
+        for reply, (name, arguments) in zip(replies, expected):
+            session = ChatSession(ModelSpec("nvidia", "m"), "k", "sistema", TOOLS, "pergunta")
+            with patch("api.providers._post_json", return_value={"choices": [{"message": reply}]}):
+                turn = session.step()
+            self.assertEqual([(call.name, call.arguments) for call in turn.calls], [(name, arguments)])
+            # o histórico guarda a chamada como chamada, para o resultado da ferramenta ter a que responder
+            self.assertTrue(session.messages[-1].get("tool_calls"))
+        # texto normal continua sendo texto, sem virar chamada por engano
+        session = ChatSession(ModelSpec("nvidia", "m"), "k", "sistema", TOOLS, "pergunta")
+        with patch("api.providers._post_json", return_value={"choices": [{"message": {"content": "Overfitting é decorar os dados."}}]}):
+            self.assertEqual(session.step().calls, [])
+
+    def test_almost_right_citations_and_uncited_blocks_are_fixed(self):
+        allowed = {"aula-2-p22-s0", "web-1"}
+        answer = tidy_answer(GeneratedAnswer(blocks=[AnswerBlock(text="Boa pergunta!", citation_ids=[]), AnswerBlock(text="Overfitting é decorar.", citation_ids=["aula-2-p22"]), AnswerBlock(text="Fora das aulas, isso.", citation_ids=["web1"])]), allowed)
+        validate_answer(answer, allowed)
+        self.assertEqual([block.citation_ids for block in answer.blocks], [["aula-2-p22-s0"], ["web-1"]])
+        self.assertTrue(answer.blocks[0].text.startswith("Boa pergunta!"))
+        with self.assertRaises(InvalidAnswerError):
+            validate_answer(tidy_answer(GeneratedAnswer(blocks=[AnswerBlock(text="Algo.", citation_ids=["aula-9-p99-s0"])]), allowed), allowed)
 
     def test_answer_is_read_in_the_formats_models_actually_send(self):
         # modelos no formato OpenAI mandavam a lista como texto JSON ou com nomes em inglês, e a resposta era recusada
