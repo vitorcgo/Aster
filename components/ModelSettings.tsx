@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 import { faviconUrl } from "@/lib/aster";
 import { VisitorKeys } from "./VisitorKeys";
+import { apiError, apiFetch } from "@/lib/errors";
 
 type Provider = { id: string; label: string; site: string; keys_url: string; configured: boolean; source: "page" | "env" | null; masked: string | null };
 type ChainEntry = { provider: string; model: string; available?: boolean; paused?: boolean };
@@ -24,15 +25,15 @@ class ApiError extends Error {
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   // o cabeçalho próprio prova que o pedido saiu do painel (um site de fora não consegue mandá-lo)
-  const response = await fetch(path, { ...init, credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Aster-Admin": "1", ...(init?.headers ?? {}) } });
+  const response = await apiFetch(path, { ...init, credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Aster-Admin": "1", ...(init?.headers ?? {}) } });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = (data as { detail?: unknown }).detail;
     const code = typeof detail === "object" && detail ? (detail as { code?: string }).code : undefined;
     if (response.status === 401) throw new ApiError(typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : "Entre de novo.", 401, code);
     if (response.status === 404 && (!detail || detail === "Not Found" || (typeof detail === "object" && (detail as { code?: string }).code === "route_not_found"))) throw new Error("A API em execução é de uma versão antiga e não tem o painel de modelos. Reinicie o servidor da API.");
-    const message = typeof detail === "object" && detail && "message" in detail ? String((detail as { message: string }).message) : typeof detail === "string" ? detail : "A API do Aster não respondeu. Confira se a janela Aster API está aberta ou rode o iniciar de novo.";
-    throw new ApiError(message, response.status, code);
+    // sempre com o número: "429 · Muitas tentativas...", "502 · A API do Aster não está rodando..."
+    throw new ApiError(apiError(response.status, data).message, response.status, code);
   }
   return data as T;
 }

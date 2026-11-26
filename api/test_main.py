@@ -177,13 +177,27 @@ class AgentTest(unittest.TestCase):
             self.assertEqual(self.ask()[-1]["type"], "answer_ready")
 
     @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    @unittest.skipUnless(HAS_MATERIALS, "PDFs das aulas ausentes")
+    def test_first_search_runs_before_the_model_and_saves_a_step(self):
+        # o servidor busca a pergunta antes do 1º passo; o modelo já pode responder citando esses trechos
+        found = search("O que são embeddings?")
+        self.assertTrue(found)
+        answer = turn(("responder", {"blocos": [{"texto": found[0].quote, "citacoes": [found[0].id]}]}))
+        with patch("api.main.call_model", side_effect=[answer]) as model:
+            events = self.ask()
+        self.assertEqual(model.call_count, 1)
+        types = [event["type"] for event in events]
+        self.assertLess(types.index("search_results"), types.index("agent_thinking"))
+        ready = next(event for event in events if event["type"] == "answer_ready")["data"]
+        self.assertEqual((ready["mode"], ready["steps"]), ("ai", 1))
+
     def test_long_query_gets_a_relaxed_second_try(self):
         query = "overfitting regularização abacaxi helicóptero paralelepípedo bicicleta"
         self.assertEqual(search(query), [])
         script = [turn(("buscar_nas_aulas", {"consulta": query})), turn(("sem_base", {"motivo": "x"}))]
         with patch("api.main.call_model", side_effect=script):
             events = self.ask()
-        hits = next(event for event in events if event["type"] == "search_results")["data"]["hits"]
+        hits = next(event for event in events if event["type"] == "search_results" and event["data"]["call_id"] != "pre-1")["data"]["hits"]
         self.assertTrue(hits)
         self.assertTrue(all("overfitting" in hit["quote"].lower() or "regulariza" in hit["quote"].lower() for hit in hits))
         # uma palavra solta continua não achando nada

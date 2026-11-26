@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { Icon } from "./Icon";
 import { faviconUrl } from "@/lib/aster";
 import { loadAI, maskKey, saveAI, type VisitorAI } from "@/lib/ai";
+import { apiFetch, readJson } from "@/lib/errors";
 
 const PROVIDERS = [
   { id: "gemini", label: "Gemini", site: "gemini.google.com", keysUrl: "https://aistudio.google.com/apikey", hint: "Tem plano gratuito. É a melhor opção para começar." },
@@ -16,13 +17,8 @@ type ModelInfo = { id: string; name: string };
 type TestResult = { state: "running" } | { state: "done"; ok: boolean; latency_ms?: number; tools?: boolean; message?: string };
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = (data as { detail?: { message?: string } | string }).detail;
-    throw new Error(typeof detail === "object" && detail?.message ? detail.message : typeof detail === "string" ? detail : "A API do Aster não respondeu. Confira se a janela Aster API está aberta ou rode o iniciar de novo.");
-  }
-  return data as T;
+  // erros chegam com o número: "400 · A chave foi recusada pelo provedor...", "502 · A API do Aster não está rodando..."
+  return readJson<T>(await apiFetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
 }
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1).replace(".", ",")} s`;

@@ -16,6 +16,7 @@ import { forgetDrawn, waitForDrawn } from "@/lib/draw";
 import { rememberRun } from "@/lib/lab";
 import { applyEvent, eventDwell, lectureLabel, newTurn, type LectureSource, type Material, type PagePayload, type RunEvent, type Source, type TraceNode, type Turn } from "@/lib/aster";
 import { aiPayload } from "@/lib/ai";
+import { ApiError, apiError } from "@/lib/errors";
 
 const SUGGESTIONS = [
   "Qual é o papel dos embeddings em um RAG?",
@@ -387,10 +388,8 @@ export function Studio({ active = true }: { active?: boolean }) {
         signal: abort.signal,
       });
       if (!response.ok || !response.body) {
-        // a API responde erros como { detail: { code, message } }; mostra a mensagem dela quando houver
-        const body = await response.json().catch(() => null) as { detail?: { message?: string } | string } | null;
-        const detail = body?.detail;
-        throw new Error(typeof detail === "object" && detail?.message ? detail.message : typeof detail === "string" ? detail : "Não consegui falar com a API do Aster.");
+        // a API responde erros como { detail: { code, message } }; vira "429 · Muitas perguntas seguidas..."
+        throw apiError(response.status, await response.json().catch(() => null));
       }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -424,8 +423,12 @@ export function Studio({ active = true }: { active?: boolean }) {
       // se a resposta final já chegou, uma queda depois disso não importa
       const finished = turnsRef.current.find((turn) => turn.id === turnId)?.events.some((event) => ["answer_ready", "insufficient_evidence", "run_failed"].includes(event.type));
       if (finished) return;
-      const message = error instanceof TypeError ? "A conexão com a API caiu no meio da pesquisa. Tente de novo." : error instanceof Error ? error.message : "A consulta falhou.";
-      enqueue({ run_id: runId || "local", seq: 999, t: 0, type: "run_failed", data: { code: "network", message } }, turnId, myToken);
+      // TypeError do fetch = sem conexão; ApiError = a API respondeu com erro (a mensagem já traz o número)
+      const message = error instanceof ApiError ? error.message
+        : error instanceof TypeError ? (runId ? "A conexão com a API caiu no meio da pesquisa. Tente de novo." : "Sem conexão com o site do Aster. Confira se o iniciar ainda está aberto.")
+        : error instanceof Error ? error.message : "A consulta falhou.";
+      const code = error instanceof ApiError ? error.code ?? `http_${error.status}` : "network";
+      enqueue({ run_id: runId || "local", seq: 999, t: 0, type: "run_failed", data: { code, message } }, turnId, myToken);
     }
   }, [enqueue, point, updateTurn]);
 
